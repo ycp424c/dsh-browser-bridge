@@ -17,6 +17,23 @@ export const ENABLED_DOMAINS = [
   'Page', 'DOM', 'CSS', 'Accessibility', 'Runtime', 'Log', 'Network',
 ] as const
 
+/** One normalized console evidence row. */
+export interface ConsoleRow {
+  timestamp: number
+  level: 'error' | 'warning' | 'log'
+  text: string
+  url: string
+}
+
+/** One normalized network evidence row (no headers, bodies, or cookies). */
+export interface NetworkRow {
+  timestamp: number
+  method?: string
+  url: string
+  status?: number
+  error?: string
+}
+
 /** One tab's live CDP session; ownership is shared by its grants. */
 export interface TabSession {
   tabId: number
@@ -28,8 +45,8 @@ export interface TabSession {
   /** Set when an unexpected cross-origin transition occurs. */
   writeSuspended: boolean
   /** Console/network evidence buffers (start empty, cleared on detach). */
-  consoleEntries: Array<{ timestamp: number; level: string; text: string; url: string }>
-  networkEntries: Array<{ timestamp: number; method: string; url: string; status?: number; error?: string }>
+  consoleEntries: ConsoleRow[]
+  networkEntries: NetworkRow[]
   /** Send one CDP command on this tab's session. */
   send(method: string, params?: object): Promise<unknown>
   /** The last observed main-frame URL ('' until the first navigation event). */

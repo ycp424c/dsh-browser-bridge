@@ -5,7 +5,7 @@
  * cleared on detach.
  */
 import { bridgeError } from '@dsh-external/dsh-browser-bridge-protocol'
-import type { TabSession } from './session-manager.ts'
+import type { ConsoleRow, NetworkRow, TabSession } from './session-manager.ts'
 import { resolveNode } from './inspect.ts'
 
 export const EVIDENCE_BUFFER_SIZE = 200
@@ -17,21 +17,6 @@ export interface ScreenshotResult {
   width: number
   height: number
   generation: number
-}
-
-export interface ConsoleRow {
-  timestamp: number
-  level: 'error' | 'warning' | 'log'
-  text: string
-  url: string
-}
-
-export interface NetworkRow {
-  timestamp: number
-  method?: string
-  url: string
-  status?: number
-  error?: string
 }
 
 /** Push one row into a bounded ring buffer. */
