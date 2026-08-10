@@ -83,13 +83,16 @@ describe('browser_act', () => {
   it('types by replacing or appending text', async () => {
     const { session, send } = fakeSession()
     await withRef(session, send)
-    send.mockResolvedValueOnce({}) // focus
-    send.mockResolvedValueOnce({}) // selectAll
-    send.mockResolvedValueOnce({}) // backspace
+    send.mockResolvedValueOnce({ object: { objectId: 'obj-1' } }) // resolveNode for selection
+    send.mockResolvedValueOnce({ result: { value: true } }) // select-all
+    send.mockResolvedValueOnce({}) // backspace down
+    send.mockResolvedValueOnce({}) // backspace up
     send.mockResolvedValueOnce({}) // insertText
     const replace = { kind: 'type', ref: 'e1', text: 'hello', replace: true } as const
     await expect(typeText(session, replace)).resolves.toMatchObject({ ok: true })
-    expect(send).toHaveBeenCalledWith('Input.dispatchKeyEvent', expect.objectContaining({ type: 'keyDown', modifiers: 2, key: 'a' }))
+    const selectCall = send.mock.calls.find(call => call[0] === 'Runtime.callFunctionOn')
+    expect(selectCall).toBeDefined()
+    expect(String((selectCall![1] as { functionDeclaration?: string }).functionDeclaration)).toContain('this.select()')
     expect(send).toHaveBeenCalledWith('Input.insertText', { text: 'hello' })
   })
 

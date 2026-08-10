@@ -50,11 +50,16 @@ const READY_EVALUATE = `function () {
   return { readyState: document.readyState }
 }`
 
-async function evaluate(session: TabSession, expression: string, args?: unknown[]): Promise<unknown> {
+/**
+ * Evaluate one function as an IIFE with inline JSON arguments. A bare
+ * function expression is a SyntaxError in `Runtime.evaluate`, so the
+ * expression must be an invoked call.
+ */
+async function evaluate(session: TabSession, fn: string, args: unknown[] = []): Promise<unknown> {
+  const expression = `(${fn})(${args.map(arg => JSON.stringify(arg)).join(', ')})`
   const response = await session.send('Runtime.evaluate', {
     expression,
     returnByValue: true,
-    ...(args !== undefined ? { arguments: args } : {}),
   })
   return (response as { result?: { value?: unknown } }).result?.value
 }
@@ -72,7 +77,7 @@ export async function waitForCondition(
     switch (condition.kind) {
       case 'selector': {
         const value = await evaluate(session, SELECTOR_EVALUATE, [
-          { value: condition.selector },
+          condition.selector,
         ]) as { found: boolean; visible: boolean } | undefined
         if (value === undefined) return false
         if (condition.state === 'attached') return value.found

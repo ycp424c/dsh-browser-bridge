@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Fixture</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <h1>Fixture</h1>
+    <button id="save">Save</button>
+    <form>
+      <input id="name" type="text" value="hello" />
+      <select id="choice">
+        <option value="a">Option A</option>
+        <option value="b">Option B</option>
+      </select>
+      <input id="secret" type="password" value="hunter2" />
+      <button id="disabled" disabled>Disabled</button>
+      <div id="offscreen" style="position: absolute; left: -9999px">Offscreen</div>
+    </form>
+    <button id="log-error">Log error</button>
+    <button id="fetch-404">Fetch 404</button>
+    <button id="same-origin">Navigate same origin</button>
+    <button id="cross-origin">Navigate cross origin</button>
+    <button id="mutate">Mutate DOM</button>
+    <div id="status">ready</div>
+    <script>
+      let mutations = 0
+      document.getElementById('mutate').addEventListener('click', () => {
+        mutations += 1
+        document.getElementById('status').textContent = 'mutated ' + mutations
+      })
+      document.getElementById('log-error').addEventListener('click', () => {
+        console.error('fixture failed')
+      })
+      document.getElementById('fetch-404').addEventListener('click', async () => {
+        try {
+          await fetch('/missing')
+        } catch {
+          /* expected */
+        }
+      })
+      document.getElementById('same-origin').addEventListener('click', () => {
+        window.location.href = '/same'
+      })
+      document.getElementById('cross-origin').addEventListener('click', () => {
+        window.location.href = 'http://localhost:' + location.port + '/other'
+      })
+    </script>
+  </body>
+</html>

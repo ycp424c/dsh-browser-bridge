@@ -180,8 +180,11 @@ describe('extension recovery', () => {
     const manager = new CdpSessionManager({ debuggerApi: new ChromeDebugger(debuggerApi as never, { lastError: () => undefined }) })
     manager.bind({ grantId: GrantId('g1'), tabId: 7 })
     await manager.session(GrantId('g1'))
+    // Startup reconciliation runs in a fresh worker: EVERY ledger tab id is
+    // detached unconditionally, whether or not a local session exists.
     await manager.cleanupOwned([7, 99])
-    expect(debuggerApi.detach).toHaveBeenCalledTimes(1)
+    expect(debuggerApi.detach).toHaveBeenCalledTimes(2)
     expect(debuggerApi.detach).toHaveBeenCalledWith({ tabId: 7 }, expect.any(Function))
+    expect(debuggerApi.detach).toHaveBeenCalledWith({ tabId: 99 }, expect.any(Function))
   })
 })

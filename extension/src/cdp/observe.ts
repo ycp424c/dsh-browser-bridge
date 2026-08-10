@@ -84,10 +84,11 @@ function collectNodes(
   let droppedChars = 0
   let textLength = 0
   const visit = (node: AxNode): void => {
-    if (node.ignored) return
     const role = roleOf(node)
     const text = textOf(node)
-    const meaningful = text !== '' || INTERACTIVE_ROLES.has(role)
+    // Ignored nodes are never emitted, but their subtrees may expose
+    // meaningful children (Chrome marks presentational wrappers ignored).
+    const meaningful = !node.ignored && (text !== '' || INTERACTIVE_ROLES.has(role))
     if (meaningful) {
       const separatorCost = textParts.length > 0 ? 1 : 0
       const remaining = maxChars - textLength - separatorCost
@@ -99,8 +100,7 @@ function collectNodes(
         droppedChars += text.length
       }
     }
-    const interactive = INTERACTIVE_ROLES.has(role) || text !== ''
-    if (interactive && nodes.length < maxNodes) {
+    if (meaningful && nodes.length < maxNodes) {
       const record: ObserveResult['nodes'][number] = {
         ref: refs.register(node.backendDOMNodeId ?? -1, node.frameId ?? 'main', generation),
         role,
@@ -115,7 +115,7 @@ function collectNodes(
       const checked = propertyFlag(node, 'checked')
       if (checked !== undefined) record.checked = checked
       nodes.push(record)
-    } else if (interactive) {
+    } else if (meaningful) {
       droppedNodes += 1
     }
     for (const childId of node.childIds ?? []) {

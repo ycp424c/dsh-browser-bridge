@@ -122,6 +122,30 @@ export async function inspectElement(session: TabSession, args: InspectArgs): Pr
     throw bridgeError('internal', 'inspect: element evaluation returned no value', false)
   }
 
+  // CSS.getComputedStyleForNode returns longhands for shorthands such as
+  // `padding`; resolve any requested name CDP did not provide through the
+  // page's own getComputedStyle so shorthand requests work as documented.
+  const requested = args.properties ?? []
+  const missing = requested.filter(name => computedStyle[name] === undefined)
+  if (missing.length > 0) {
+    const fillResult = await session.send('Runtime.callFunctionOn', {
+      objectId,
+      returnByValue: true,
+      functionDeclaration: `function (names) {
+        const style = getComputedStyle(this)
+        const out = {}
+        for (const name of names) out[name] = style[name] ?? ''
+        return out
+      }`,
+      arguments: [{ value: missing }],
+    })
+    const fill = (fillResult as { result?: { value?: Record<string, string> } }).result?.value
+    for (const name of missing) {
+      const value = fill?.[name]
+      if (value !== undefined && value !== '') computedStyle[name] = value
+    }
+  }
+
   const visible = value.display !== 'none'
     && value.visibility !== 'hidden'
     && value.visibility !== 'collapse'

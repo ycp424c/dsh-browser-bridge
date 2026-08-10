@@ -85,6 +85,26 @@ describe('browser_observe', () => {
     expect(result.nodes.find(node => node.name === 'Name')?.value).toBe('public-name')
   })
 
+  it('descends through ignored wrapper nodes to expose their children', async () => {
+    const { session, send } = fakeSession()
+    send.mockResolvedValueOnce({
+      result: { value: { url: FIXTURE_URL, title: 'T', readyState: 'complete', viewport: { width: 1, height: 1, scrollX: 0, scrollY: 0 } } },
+    })
+    send.mockResolvedValueOnce({
+      nodes: [
+        axNode({ nodeId: '1', role: { value: 'RootWebArea' }, name: { value: 'T' }, childIds: ['2'] }),
+        // A presentational wrapper marked ignored sits between the root and
+        // the interactive child; the walk must not skip its subtree.
+        axNode({ nodeId: '2', role: { value: 'none' }, ignored: true, childIds: ['3'] }),
+        axNode({ nodeId: '3', role: { value: 'button' }, name: { value: 'Save' }, backendDOMNodeId: 42 }),
+      ],
+    })
+    const result = await observePage(session, {})
+    expect(result.nodes).toContainEqual(expect.objectContaining({ role: 'button', name: 'Save' }))
+    expect(result.nodes).not.toContainEqual(expect.objectContaining({ role: 'none' }))
+    expect(result.text).toContain('Save')
+  })
+
   it('caps nodes and text with truncation counts', async () => {
     const { session, send } = fakeSession()
     send.mockResolvedValueOnce({

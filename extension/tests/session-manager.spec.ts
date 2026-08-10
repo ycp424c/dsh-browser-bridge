@@ -134,6 +134,35 @@ describe('CDP session manager', () => {
     expect(() => session.refs.resolve(ref, session.generation)).toThrowError(expect.objectContaining({ code: 'stale_element' }))
   })
 
+  it('suspends writes only on an unmarked cross-origin transition', async () => {
+    const { manager, api } = makeManager()
+    manager.bind({ grantId: GRANT_A, tabId: 7 })
+    const session = await manager.session(GRANT_A)
+    // The first observed navigation has no known previous URL, so it cannot
+    // be classified cross-origin; an HMR reload must not suspend the dev loop.
+    api.emitEvent({ tabId: 7 }, 'Page.frameNavigated', {
+      frame: { id: 'frame-1', url: 'http://127.0.0.1:4173/', parentId: undefined },
+    })
+    expect(session.writeSuspended).toBe(false)
+    expect(session.currentUrl).toBe('http://127.0.0.1:4173/')
+    // A same-origin navigation only updates the URL.
+    api.emitEvent({ tabId: 7 }, 'Page.frameNavigated', {
+      frame: { id: 'frame-1', url: 'http://127.0.0.1:4173/reloaded', parentId: undefined },
+    })
+    expect(session.writeSuspended).toBe(false)
+    // An armed expected-navigation window authorizes a cross-origin result.
+    session.expectNavigation(5_000)
+    api.emitEvent({ tabId: 7 }, 'Page.frameNavigated', {
+      frame: { id: 'frame-1', url: 'https://expected.example/', parentId: undefined },
+    })
+    expect(session.writeSuspended).toBe(false)
+    // An unmarked cross-origin transition suspends writes.
+    api.emitEvent({ tabId: 7 }, 'Page.frameNavigated', {
+      frame: { id: 'frame-1', url: 'https://unexpected.example/', parentId: undefined },
+    })
+    expect(session.writeSuspended).toBe(true)
+  })
+
   it('does not bump the generation for iframe navigation', async () => {
     const { manager, api } = makeManager()
     manager.bind({ grantId: GRANT_A, tabId: 7 })
@@ -196,5 +225,15 @@ describe('CDP session manager', () => {
   it('revokes the session for an unknown grant', async () => {
     const { manager } = makeManager()
     await expect(manager.session(GrantId('nope'))).rejects.toMatchObject({ code: 'grant_expired' })
+  })
+
+  it('cleanupOwned detaches owned tab ids without local session state', async () => {
+    const { manager, api } = makeManager()
+    // Startup reconciliation runs in a fresh worker: no local session exists
+    // for the ledger's tab ids, but the previous worker's debugger session
+    // must still be detached unconditionally.
+    await manager.cleanupOwned([7, 8])
+    expect(api.detach).toHaveBeenCalledWith({ tabId: 7 }, expect.any(Function))
+    expect(api.detach).toHaveBeenCalledWith({ tabId: 8 }, expect.any(Function))
   })
 })

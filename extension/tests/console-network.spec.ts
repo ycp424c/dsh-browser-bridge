@@ -13,6 +13,7 @@ function makeSession(): TabSession {
     writeSuspended: false,
     consoleEntries: [],
     networkEntries: [],
+    networkRequestMethods: new Map(),
     currentUrl: FIXTURE_URL,
     lastChangeAt: null,
     expectNavigationWindow: null,
@@ -49,14 +50,14 @@ describe('console and network evidence', () => {
       requestId: 'r1',
       response: { status: 404, url: `${FIXTURE_URL}missing` },
       type: 'Document',
-    })
+    }, new Map())
     expect(failed).toMatchObject({ url: `${FIXTURE_URL}missing`, status: 404 })
     session.networkEntries.push(failed!)
 
     const broken = normalizeNetworkEntry('Network.loadingFailed', {
       requestId: 'r2',
       errorText: 'net::ERR_CONNECTION_RESET',
-    })
+    }, new Map())
     expect(broken).toMatchObject({ error: 'net::ERR_CONNECTION_RESET' })
     session.networkEntries.push(broken!)
 
@@ -71,14 +72,15 @@ describe('console and network evidence', () => {
 
   it('records the request method via requestWillBeSent correlation', () => {
     const session = makeSession()
+    const methods = new Map<string, string>()
     normalizeNetworkEntry('Network.requestWillBeSent', {
       requestId: 'r9',
       request: { method: 'POST', url: `${FIXTURE_URL}api` },
-    })
+    }, methods)
     const row = normalizeNetworkEntry('Network.responseReceived', {
       requestId: 'r9',
       response: { status: 500, url: `${FIXTURE_URL}api` },
-    })
+    }, methods)
     expect(row).toMatchObject({ method: 'POST', url: `${FIXTURE_URL}api`, status: 500 })
     void session
   })
@@ -87,7 +89,7 @@ describe('console and network evidence', () => {
     const row = normalizeNetworkEntry('Network.responseReceived', {
       requestId: 'r3',
       response: { status: 200, url: FIXTURE_URL },
-    })
+    }, new Map())
     expect(row).toBeNull()
   })
 

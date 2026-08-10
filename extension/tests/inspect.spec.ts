@@ -91,6 +91,33 @@ describe('browser_inspect', () => {
     expect(send).toHaveBeenCalledWith('DOM.querySelector', { nodeId: 1, selector: '#save' })
   })
 
+  it('resolves requested shorthand properties through the page getComputedStyle', async () => {
+    const { session, send } = fakeSession()
+    session.refs.register(42, 'frame-1', 1)
+    send.mockResolvedValueOnce({ nodeIds: [100] })
+    // CDP returns longhands only: the requested `padding` shorthand is absent.
+    send.mockResolvedValueOnce({ computedStyle: [{ name: 'color', value: 'rgb(0, 0, 255)' }] })
+    send.mockResolvedValueOnce({ object: { objectId: 'obj-5' } })
+    send.mockResolvedValueOnce({
+      result: {
+        value: {
+          attributes: { id: 'save' },
+          text: 'Save',
+          rect: { x: 0, y: 0, width: 10, height: 10 },
+          display: 'block',
+          visibility: 'visible',
+          opacity: '1',
+          viewportIntersects: true,
+        },
+      },
+    })
+    send.mockResolvedValueOnce({
+      result: { value: { padding: '8px' } },
+    })
+    const inspected = await inspectElement(session, { ref: 'e1', properties: ['color', 'padding'] })
+    expect(inspected.computedStyle).toEqual({ color: 'rgb(0, 0, 255)', padding: '8px' })
+  })
+
   it('fails a stale reference', async () => {
     const { session } = fakeSession()
     await expect(inspectElement(session, { ref: 'nope' })).rejects.toMatchObject({ code: 'stale_element' })

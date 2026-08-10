@@ -62,7 +62,8 @@ async function click(session: TabSession, target: Target, options: { button?: 'l
   const nodeId = await resolveNode(session, normalizeTarget(target))
   const center = await boxCenter(session, nodeId)
   session.expectNavigation(5_000)
-  const button = options.button === 'right' ? 2 : options.button === 'middle' ? 1 : 0
+  // CDP expects the MouseButton string enum, not a numeric code.
+  const button = options.button === 'right' ? 'right' : options.button === 'middle' ? 'middle' : 'left'
   const clickCount = options.clickCount ?? 1
   await session.send('Input.dispatchMouseEvent', {
     type: 'mousePressed', x: center.x, y: center.y, button, clickCount,
@@ -97,9 +98,25 @@ async function typeText(
   assertWritable(session)
   const nodeId = await resolveNode(session, normalizeTarget(action))
   if (action.replace === true) {
-    // Platform select-all then Backspace, then insert the replacement text.
-    await session.send('Input.dispatchKeyEvent', { type: 'keyDown', modifiers: 2, key: 'a', code: 'KeyA', windowsVirtualKeyCode: 65 })
-    await session.send('Input.dispatchKeyEvent', { type: 'keyUp', modifiers: 2, key: 'a', code: 'KeyA', windowsVirtualKeyCode: 65 })
+    // Focus and select the existing text programmatically: synthesized
+    // platform shortcut keys (Ctrl/Meta+A) do not reliably trigger the
+    // browser's select-all keybinding, so the selection is set on the
+    // element instead. A Backspace clears the selection, then insertText
+    // replaces it.
+    const resolved = await session.send('DOM.resolveNode', { nodeId })
+    const objectId = (resolved as { object?: { objectId?: string } }).object?.objectId
+    if (objectId === undefined) {
+      throw bridgeError('stale_element', 'type target could not be resolved', false)
+    }
+    await session.send('Runtime.callFunctionOn', {
+      objectId,
+      returnByValue: true,
+      functionDeclaration: `function () {
+        this.focus()
+        if (typeof this.select === 'function') this.select()
+        return true
+      }`,
+    })
     await session.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Backspace', code: 'Backspace', windowsVirtualKeyCode: 8 })
     await session.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Backspace', code: 'Backspace', windowsVirtualKeyCode: 8 })
   } else {

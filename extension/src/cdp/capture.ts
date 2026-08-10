@@ -88,12 +88,15 @@ export function normalizeConsoleEntry(
   return null
 }
 
-/** In-flight request method correlation (requestWillBeSent → response/failure). */
-const requestMethods = new Map<string, string>()
-
+/**
+ * In-flight request method correlation (requestWillBeSent → response/failure).
+ * One map per session: request ids are only unique within a CDP target, and
+ * correlation state must die with the grant that owns it.
+ */
 export function normalizeNetworkEntry(
   method: string,
   params: Record<string, unknown>,
+  requestMethods: Map<string, string>,
 ): NetworkRow | null {
   if (method === 'Network.requestWillBeSent') {
     const requestId = String(params.requestId ?? '')

@@ -47,6 +47,8 @@ export interface TabSession {
   /** Console/network evidence buffers (start empty, cleared on detach). */
   consoleEntries: ConsoleRow[]
   networkEntries: NetworkRow[]
+  /** Per-session request-method correlation for network evidence. */
+  networkRequestMethods: Map<string, string>
   /** Send one CDP command on this tab's session. */
   send(method: string, params?: object): Promise<unknown>
   /** The last observed main-frame URL ('' until the first navigation event). */
@@ -130,10 +132,13 @@ export class CdpSessionManager {
   /**
    * Service-worker startup reconciliation: best-effort detach ONLY the owned
    * tab ids recorded in the prior session's ledger, then start empty.
+   * This worker instance has no local session state for those tabs — the
+   * previous worker may have died while the debugger was still attached —
+   * so the detach must be attempted unconditionally.
    */
   async cleanupOwned(tabIds: number[]): Promise<void> {
     for (const tabId of tabIds) {
-      await this.detachTab(tabId)
+      await this.detachTabId(tabId)
       this.sessions.delete(tabId)
       this.tabGrants.delete(tabId)
     }
@@ -175,6 +180,7 @@ export class CdpSessionManager {
       writeSuspended: false,
       consoleEntries: [],
       networkEntries: [],
+      networkRequestMethods: new Map(),
       send: (method, params) => this.sendTab(tabId, method, params),
       currentUrl: '',
       lastChangeAt: null,
@@ -188,14 +194,16 @@ export class CdpSessionManager {
       onMainFrameNavigated: (url, opts) => {
         session.lastChangeAt = this.now()
         const window = session.expectNavigationWindow
-        if (window !== null && this.now() <= window.until) {
-          session.expectNavigationWindow = null
-          session.currentUrl = url
-          return
-        }
         session.expectNavigationWindow = null
+        const previous = session.currentUrl
         session.currentUrl = url
-        if (!opts.expected && originOf(url) !== originOf(session.currentUrl)) {
+        // An armed expected-navigation window authorizes the resulting
+        // main-frame navigation and its redirect chain.
+        if (window !== null && this.now() <= window.until) return
+        // An unmarked CROSS-ORIGIN transition suspends further writes.
+        // A same-origin transition (for example an HMR reload) only updates
+        // the URL, and an unknown previous URL cannot be called cross-origin.
+        if (!opts.expected && previous !== '' && originOf(url) !== originOf(previous)) {
           session.writeSuspended = true
         }
       },
@@ -270,7 +278,7 @@ export class CdpSessionManager {
       return
     }
     if (method === 'Network.requestWillBeSent' || method === 'Network.responseReceived' || method === 'Network.loadingFailed') {
-      const row = normalizeNetworkEntry(method, params as Record<string, unknown>)
+      const row = normalizeNetworkEntry(method, params as Record<string, unknown>, session.networkRequestMethods)
       if (row !== null) pushBounded(session.networkEntries, row, EVIDENCE_BUFFER_SIZE)
     }
   }
@@ -284,6 +292,7 @@ export class CdpSessionManager {
     session.refs.clear()
     session.consoleEntries = []
     session.networkEntries = []
+    session.networkRequestMethods.clear()
     const pending = this.pending.get(source.tabId)
     if (pending !== undefined) {
       this.pending.delete(source.tabId)
@@ -306,11 +315,16 @@ export class CdpSessionManager {
       return
     }
     session.attached = false
+    await this.detachTabId(tabId)
+    this.sessions.delete(tabId)
+  }
+
+  /** Unconditional best-effort detach of one tab's debugger session. */
+  private async detachTabId(tabId: number): Promise<void> {
     try {
       await this.debuggerApi.detach({ tabId })
     } catch {
-      // The tab may already be gone; the onDetach path owns that outcome.
+      // The tab or session may already be gone.
     }
-    this.sessions.delete(tabId)
   }
 }
