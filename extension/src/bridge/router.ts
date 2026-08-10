@@ -15,6 +15,8 @@ import {
 import type { BridgeClient } from './client.ts'
 import { GrantVault } from '../grants/vault.ts'
 import type { TabCatalog } from '../tabs/catalog.ts'
+import type { CdpSessionManager, TabSession } from '../cdp/session-manager.ts'
+import type { BrowserOperation, JsonValue } from '@dsh-external/dsh-browser-bridge-protocol'
 
 export type PanelRequest =
   | { type: 'bridge.connect'; requestId: string; wsUrl: string; pairingNonce: string }
@@ -34,8 +36,17 @@ export interface BridgeRouterDeps {
   bridge: BridgeClient
   vault: GrantVault
   catalog: TabCatalog
+  sessionManager: CdpSessionManager
+  /** Operation dispatcher; wired by the CDP task layers. */
+  toolExecutor?: ToolExecutor
   grantAckTimeoutMs?: number
 }
+
+export type ToolExecutor = (
+  session: TabSession,
+  operation: BrowserOperation,
+  args: JsonValue,
+) => Promise<JsonValue>
 
 interface PendingGrant {
   resolve(handle: string): void
@@ -55,10 +66,23 @@ export function isLoopbackWsUrl(input: string): boolean {
   return LOOPBACK_HOSTS.has(url.hostname)
 }
 
+/** Normalize an arbitrary thrown value into a stable bridge error. */
+export function normalizeToolError(error: unknown): BridgeError {
+  if (typeof error === 'object' && error !== null
+    && 'code' in error && typeof (error as { code: unknown }).code === 'string'
+    && 'message' in error && typeof (error as { message: unknown }).message === 'string'
+    && 'retryable' in error && typeof (error as { retryable: unknown }).retryable === 'boolean') {
+    return error as BridgeError
+  }
+  return bridgeError('internal', error instanceof Error ? error.message : String(error), false)
+}
+
 export class BridgeRouter {
   private readonly bridge: BridgeClient
   private readonly vault: GrantVault
   private readonly catalog: TabCatalog
+  private readonly sessionManager: CdpSessionManager
+  private readonly toolExecutor: ToolExecutor | undefined
   private readonly grantAckTimeoutMs: number
   private readonly pendingGrants = new Map<string, PendingGrant>()
 
@@ -66,6 +90,8 @@ export class BridgeRouter {
     this.bridge = deps.bridge
     this.vault = deps.vault
     this.catalog = deps.catalog
+    this.sessionManager = deps.sessionManager
+    this.toolExecutor = deps.toolExecutor
     this.grantAckTimeoutMs = deps.grantAckTimeoutMs ?? 10_000
     deps.bridge.onFrame(frame => this.onBridgeFrame(frame))
   }
@@ -77,9 +103,9 @@ export class BridgeRouter {
     })
     port.onDisconnect.addListener(() => {
       // The bridge is panel-scoped: when the panel goes away, stop the
-      // connection and drop every grant it owned (expiry refinements land
-      // with the lifecycle hardening task).
+      // connection and drop every grant and CDP session it owned.
       this.vault.revokeAll()
+      this.sessionManager.revokeAll()
       this.bridge.close()
     })
   }
@@ -182,7 +208,14 @@ export class BridgeRouter {
       const pending = this.pendingGrants.get(frame.grantId)
       if (pending === undefined) return
       this.vault.accept(frame.grantId, frame.handle)
+      // Bind the CDP session WITHOUT attaching the debugger.
+      const grant = this.vault.resolve(frame.grantId)
+      this.sessionManager.bind({ grantId: frame.grantId, tabId: grant.tab.tabId })
       pending.resolve(frame.handle)
+      return
+    }
+    if (frame.type === 'tool.call') {
+      void this.handleToolCall(frame)
       return
     }
     if (frame.type === 'error') {
@@ -198,6 +231,31 @@ export class BridgeRouter {
     }
     if (frame.type === 'grant.revoke') {
       this.vault.revoke(frame.grantId)
+      this.sessionManager.revoke(frame.grantId)
+    }
+  }
+
+  /**
+   * Resolve the exact grant and its session for one tool call. The active
+   * tab is NEVER queried: a grant binds one exact tab at issue time.
+   */
+  private async handleToolCall(frame: Extract<BridgeFrame, { type: 'tool.call' }>): Promise<void> {
+    const { requestId, grantId, operation, args } = frame
+    try {
+      this.vault.resolve(grantId)
+      const session = await this.sessionManager.session(grantId)
+      if (this.toolExecutor === undefined) {
+        throw bridgeError('internal', 'browser tool executor is not wired', false)
+      }
+      const value = await this.toolExecutor(session, operation, args)
+      this.bridge.send({ v: PROTOCOL_VERSION, type: 'tool.result', requestId, result: { ok: true, value } })
+    } catch (error) {
+      this.bridge.send({
+        v: PROTOCOL_VERSION,
+        type: 'tool.result',
+        requestId,
+        result: { ok: false, error: normalizeToolError(error) },
+      })
     }
   }
 

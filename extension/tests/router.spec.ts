@@ -1,12 +1,14 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
-  GrantHandle, GrantId, PROTOCOL_VERSION, type BridgeFrame, type GrantAcceptedFrame,
+  GrantHandle, GrantId, PROTOCOL_VERSION, RequestId, type BridgeFrame, type GrantAcceptedFrame,
   type GrantPutFrame, type TabDescriptor,
 } from '@dsh-external/dsh-browser-bridge-protocol'
-import { BridgeRouter, type PanelReply } from '../src/bridge/router.ts'
+import { BridgeRouter, type PanelReply, type ToolExecutor } from '../src/bridge/router.ts'
 import type { BridgeClient, BridgeClientState } from '../src/bridge/client.ts'
 import type { TabCatalog } from '../src/tabs/catalog.ts'
 import { GrantVault } from '../src/grants/vault.ts'
+import { CdpSessionManager } from '../src/cdp/session-manager.ts'
+import { ChromeDebugger, type ChromeDebuggerApi } from '../src/cdp/chrome-debugger.ts'
 
 const TAB: TabDescriptor = { tabId: 9, windowId: 3, title: 'App', url: 'http://127.0.0.1:4173/' }
 
@@ -80,11 +82,13 @@ class FakePort {
   }
 }
 
-function makeRouter(overrides: { catalog?: TabCatalog } = {}): {
+function makeRouter(overrides: { catalog?: TabCatalog; toolExecutor?: ToolExecutor } = {}): {
   router: BridgeRouter
   bridge: FakeBridge
   vault: GrantVault
   catalog: TabCatalog
+  manager: CdpSessionManager
+  debuggerApi: ChromeDebuggerApi
 } {
   const bridge = new FakeBridge()
   const vault = new GrantVault()
@@ -93,8 +97,29 @@ function makeRouter(overrides: { catalog?: TabCatalog } = {}): {
     current: vi.fn(async (): Promise<TabDescriptor> => ({ ...TAB })),
     list: vi.fn(async (): Promise<TabDescriptor[]> => [{ ...TAB }]),
   } as unknown as TabCatalog)
-  const router = new BridgeRouter({ bridge: bridge as unknown as BridgeClient, vault, catalog })
-  return { router, bridge, vault, catalog }
+  const debuggerApi = new FakeDebuggerApi()
+  const manager = new CdpSessionManager({ debuggerApi: new ChromeDebugger(debuggerApi as never, { lastError: () => undefined }) })
+  const router = new BridgeRouter({
+    bridge: bridge as unknown as BridgeClient,
+    vault,
+    catalog,
+    sessionManager: manager,
+    ...(overrides.toolExecutor !== undefined ? { toolExecutor: overrides.toolExecutor } : {}),
+  })
+  return { router, bridge, vault, catalog, manager, debuggerApi }
+}
+
+class FakeDebuggerApi implements ChromeDebuggerApi {
+  attach = vi.fn((_t: chrome.debugger.Debuggee, _v: string, cb?: () => void) => { cb?.(); return Promise.resolve() })
+  detach = vi.fn((_t: chrome.debugger.Debuggee, cb?: () => void) => { cb?.(); return Promise.resolve() })
+  sendCommand = vi.fn((_t: chrome.debugger.Debuggee, _m: string, _p?: object, cb?: (r?: unknown) => void) => { cb?.({}); return Promise.resolve({}) })
+  getTargets = vi.fn(async (): Promise<chrome.debugger.TargetInfo[]> => [])
+  onEvent = {
+    addListener: () => {}, removeListener: () => {}, hasListener: () => false, hasListeners: () => false,
+  } as unknown as chrome.debugger.DebuggerEventEvent
+  onDetach = {
+    addListener: () => {}, removeListener: () => {}, hasListener: () => false, hasListeners: () => false,
+  } as unknown as chrome.debugger.DebuggerDetachedEvent
 }
 
 describe('bridge router', () => {
@@ -175,5 +200,142 @@ describe('bridge router', () => {
     const replies = port.replies()
     expect(replies[0]).toMatchObject({ requestId: 'r1', ok: true })
     expect(replies[1]).toMatchObject({ requestId: 'r2', ok: false })
+  })
+
+  it('binds the accepted grant without attaching the debugger', async () => {
+    const { router, bridge, vault, debuggerApi } = makeRouter()
+    const port = new FakePort()
+    router.connectPanel(port.raw)
+    port.receive({ type: 'grant.create', requestId: 'r1', sessionId: 's1', tab: { ...TAB } })
+    await vi.waitFor(() => {
+      expect(bridge.sentOf('grant.put')).toBeDefined()
+    })
+    const put = bridge.sentOf('grant.put') as GrantPutFrame
+    bridge.receive({
+      v: PROTOCOL_VERSION,
+      type: 'grant.accepted',
+      grantId: put.grantId,
+      handle: GrantHandle('h'.repeat(32)),
+    })
+    await vi.waitFor(() => {
+      expect(port.replies()).toHaveLength(1)
+    })
+    expect(debuggerApi.attach).not.toHaveBeenCalled()
+    expect(vault.resolve(put.grantId).state).toBe('accepted')
+  })
+
+  it('routes a tool call to the exact grant session without querying the active tab', async () => {
+    const executor = vi.fn(async (): Promise<unknown> => ({ ok: true, page: { url: 'http://x/' } }))
+    const { router, bridge, debuggerApi } = makeRouter({ toolExecutor: executor as unknown as ToolExecutor })
+    const port = new FakePort()
+    router.connectPanel(port.raw)
+    port.receive({ type: 'grant.create', requestId: 'r1', sessionId: 's1', tab: { ...TAB } })
+    await vi.waitFor(() => {
+      expect(bridge.sentOf('grant.put')).toBeDefined()
+    })
+    const put = bridge.sentOf('grant.put') as GrantPutFrame
+    bridge.receive({
+      v: PROTOCOL_VERSION,
+      type: 'grant.accepted',
+      grantId: put.grantId,
+      handle: GrantHandle('h'.repeat(32)),
+    })
+    await vi.waitFor(() => {
+      expect(port.replies()).toHaveLength(1)
+    })
+    // First tool call attaches lazily.
+    bridge.receive({
+      v: PROTOCOL_VERSION,
+      type: 'tool.call',
+      requestId: RequestId('t1'),
+      grantId: put.grantId,
+      operation: 'observe',
+      args: {},
+    })
+    await vi.waitFor(() => {
+      expect(debuggerApi.attach).toHaveBeenCalledWith({ tabId: 9 }, '1.3', expect.any(Function))
+    })
+    await vi.waitFor(() => {
+      expect(bridge.sentOf('tool.result')).toBeDefined()
+    })
+    expect(executor).toHaveBeenCalledWith(
+      expect.objectContaining({ tabId: 9 }),
+      'observe',
+      {},
+    )
+    expect(bridge.sentOf('tool.result')).toMatchObject({ requestId: RequestId('t1'), result: { ok: true } })
+  })
+
+  it('reports a stable error when a tool call fails', async () => {
+    const executor = vi.fn(async (): Promise<unknown> => {
+      throw { code: 'debugger_busy', message: 'devtools open', retryable: false }
+    })
+    const { router, bridge } = makeRouter({ toolExecutor: executor as unknown as ToolExecutor })
+    const port = new FakePort()
+    router.connectPanel(port.raw)
+    port.receive({ type: 'grant.create', requestId: 'r1', sessionId: 's1', tab: { ...TAB } })
+    await vi.waitFor(() => {
+      expect(bridge.sentOf('grant.put')).toBeDefined()
+    })
+    const put = bridge.sentOf('grant.put') as GrantPutFrame
+    bridge.receive({
+      v: PROTOCOL_VERSION,
+      type: 'grant.accepted',
+      grantId: put.grantId,
+      handle: GrantHandle('h'.repeat(32)),
+    })
+    await vi.waitFor(() => {
+      expect(port.replies()).toHaveLength(1)
+    })
+    bridge.receive({
+      v: PROTOCOL_VERSION,
+      type: 'tool.call',
+      requestId: RequestId('t2'),
+      grantId: put.grantId,
+      operation: 'inspect',
+      args: { selector: '#save' },
+    })
+    await vi.waitFor(() => {
+      expect(bridge.sentOf('tool.result')).toBeDefined()
+    })
+    expect(bridge.sentOf('tool.result')).toMatchObject({
+      requestId: RequestId('t2'),
+      result: { ok: false, error: { code: 'debugger_busy' } },
+    })
+  })
+
+  it('revokes the CDP session when the host revokes the grant', async () => {
+    const { router, bridge, debuggerApi } = makeRouter()
+    const port = new FakePort()
+    router.connectPanel(port.raw)
+    port.receive({ type: 'grant.create', requestId: 'r1', sessionId: 's1', tab: { ...TAB } })
+    await vi.waitFor(() => {
+      expect(bridge.sentOf('grant.put')).toBeDefined()
+    })
+    const put = bridge.sentOf('grant.put') as GrantPutFrame
+    bridge.receive({
+      v: PROTOCOL_VERSION,
+      type: 'grant.accepted',
+      grantId: put.grantId,
+      handle: GrantHandle('h'.repeat(32)),
+    })
+    await vi.waitFor(() => {
+      expect(port.replies()).toHaveLength(1)
+    })
+    bridge.receive({
+      v: PROTOCOL_VERSION,
+      type: 'tool.call',
+      requestId: RequestId('t3'),
+      grantId: put.grantId,
+      operation: 'observe',
+      args: {},
+    })
+    await vi.waitFor(() => {
+      expect(debuggerApi.attach).toHaveBeenCalled()
+    })
+    bridge.receive({ v: PROTOCOL_VERSION, type: 'grant.revoke', grantId: put.grantId })
+    await vi.waitFor(() => {
+      expect(debuggerApi.detach).toHaveBeenCalledWith({ tabId: 9 }, expect.any(Function))
+    })
   })
 })
