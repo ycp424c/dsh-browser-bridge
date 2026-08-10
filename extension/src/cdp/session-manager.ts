@@ -253,12 +253,12 @@ export class CdpSessionManager {
       return
     }
     if (method === 'Runtime.consoleAPICalled' || method === 'Log.entryAdded') {
-      const row = normalizeConsoleEntry(method, params)
+      const row = normalizeConsoleEntry(method, params as Record<string, unknown>)
       if (row !== null) pushBounded(session.consoleEntries, row, EVIDENCE_BUFFER_SIZE)
       return
     }
     if (method === 'Network.requestWillBeSent' || method === 'Network.responseReceived' || method === 'Network.loadingFailed') {
-      const row = normalizeNetworkEntry(method, params)
+      const row = normalizeNetworkEntry(method, params as Record<string, unknown>)
       if (row !== null) pushBounded(session.networkEntries, row, EVIDENCE_BUFFER_SIZE)
     }
   }
