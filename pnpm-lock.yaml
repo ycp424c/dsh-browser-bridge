@@ -87,9 +87,6 @@ importers:
 
   packages/dsh-plugin:
     dependencies:
-      '@dsh-external/dsh-browser-bridge-protocol':
-        specifier: workspace:^
-        version: link:../protocol
       schemastery:
         specifier: ^3.18.0
         version: 3.18.0
@@ -139,6 +136,9 @@ importers:
       '@deepseek-ai/dsh-tools':
         specifier: link:../../.dsh/source/current/packages/core/tools
         version: link:../../.dsh/source/current/packages/core/tools
+      '@dsh-external/dsh-browser-bridge-protocol':
+        specifier: workspace:^
+        version: link:../protocol
       '@types/node':
         specifier: ^22.0.0
         version: 22.20.1
