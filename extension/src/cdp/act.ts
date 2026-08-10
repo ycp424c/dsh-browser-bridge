@@ -146,7 +146,7 @@ async function press(session: TabSession, key: string): Promise<ActResult> {
 
 async function scroll(
   session: TabSession,
-  target: { ref?: string; selector?: string },
+  target: Target,
   options: { deltaX?: number; deltaY?: number },
 ): Promise<ActResult> {
   assertWritable(session)
