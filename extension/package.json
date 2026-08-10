@@ -8,8 +8,8 @@
     "dev": "wxt",
     "build": "wxt build",
     "zip": "wxt zip",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "typecheck": "wxt prepare && tsc --noEmit",
+    "test": "wxt prepare && vitest run"
   },
   "dependencies": {
     "@radix-ui/react-slot": "^1.2.0",
@@ -19,6 +19,7 @@
   "devDependencies": {
     "@dsh-external/dsh-browser-bridge-protocol": "workspace:^",
     "@tailwindcss/vite": "^4.1.11",
+    "@types/chrome": "^0.0.287",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@types/ws": "^8.18.1",

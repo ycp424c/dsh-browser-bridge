@@ -1,0 +1,18 @@
+{
+  "extends": ["./.wxt/tsconfig.json", "../.dsh/tsconfig.paths.json"],
+  "compilerOptions": {
+    "exactOptionalPropertyTypes": true,
+    "jsx": "react-jsx",
+    "types": ["chrome"]
+  },
+  "include": [
+    ".wxt/wxt.d.ts",
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "entrypoints/**/*.ts",
+    "entrypoints/**/*.tsx",
+    "tests/**/*.ts",
+    "wxt.config.ts",
+    "vitest.config.ts"
+  ]
+}
