@@ -1,4 +1,5 @@
 .dsh/
+.pnpm-store/
 node_modules/
 lib/
 dist/
