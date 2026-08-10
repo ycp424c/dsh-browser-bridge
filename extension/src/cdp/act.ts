@@ -176,7 +176,10 @@ function targetOf(action: { ref?: string; selector?: string }): Target {
 export async function performAction(session: TabSession, action: ActAction): Promise<ActResult> {
   switch (action.kind) {
     case 'click':
-      return click(session, targetOf(action), { button: action.button, clickCount: action.clickCount })
+      return click(session, targetOf(action), {
+        ...(action.button !== undefined ? { button: action.button } : {}),
+        ...(action.clickCount !== undefined ? { clickCount: action.clickCount } : {}),
+      })
     case 'type':
       return typeText(session, { ...targetOf(action), text: action.text, replace: action.replace })
     case 'select':
