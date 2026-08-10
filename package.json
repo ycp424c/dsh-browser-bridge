@@ -1,0 +1,21 @@
+{
+  "name": "dsh-browser-bridge-workspace",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.7.0",
+  "engines": { "node": "^22.19.0 || >=24.0.0" },
+  "scripts": {
+    "link:dsh": "node scripts/link-dsh-source.mjs",
+    "setup:dsh": "node scripts/link-dsh-source.mjs && node scripts/sync-dsh-tsconfig.mjs",
+    "build": "pnpm -r build",
+    "typecheck": "node scripts/sync-dsh-tsconfig.mjs && pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "test:e2e": "playwright test",
+    "check": "pnpm typecheck && pnpm test && pnpm build"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.62.1",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.10"
+  }
+}

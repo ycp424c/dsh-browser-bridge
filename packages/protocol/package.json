@@ -1,0 +1,35 @@
+{
+  "name": "@dsh-external/dsh-browser-bridge-protocol",
+  "description": "Transport-neutral wire schemas for the DSH browser bridge",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/index.js",
+    "lib/types/**/*.d.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "tsdown": "^0.22.2",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.10"
+  },
+  "license": "BSD-3-Clause"
+}

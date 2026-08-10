@@ -1,0 +1,39 @@
+{
+  "name": "@dsh-external/dsh-browser-bridge-extension",
+  "description": "Chrome MV3 side panel extension for the DSH browser bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wxt",
+    "build": "wxt build",
+    "zip": "wxt zip",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@radix-ui/react-slot": "^1.2.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@dsh-external/dsh-browser-bridge-protocol": "workspace:^",
+    "@tailwindcss/vite": "^4.1.11",
+    "@types/react": "^19.1.8",
+    "@types/react-dom": "^19.1.6",
+    "@types/ws": "^8.18.1",
+    "@wxt-dev/module-react": "^1.1.4",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.525.0",
+    "tailwind-merge": "^3.3.1",
+    "tailwindcss": "^4.1.11",
+    "typescript": "^6.0.3",
+    "vite-tsconfig-paths": "^5.1.4",
+    "vitest": "^4.1.10",
+    "wxt": "^0.21.0",
+    "ws": "^8.21.0",
+    "zod": "^4.4.3"
+  },
+  "license": "BSD-3-Clause"
+}

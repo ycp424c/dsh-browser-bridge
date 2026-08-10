@@ -1,0 +1,7 @@
+.dsh/
+node_modules/
+lib/
+dist/
+.output/
+test-results/
+playwright-report/

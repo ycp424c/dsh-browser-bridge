@@ -1,0 +1,86 @@
+{
+  "name": "@dsh-external/dsh-browser-bridge",
+  "description": "External DSH plugin (host + client) for the browser bridge",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "types": "./lib/types/client/index.d.ts",
+      "default": "./lib/client.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/index.js",
+    "lib/client.js",
+    "lib/types/**/*.d.ts",
+    "dsh.plugin.json",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "dshClient": {
+    "inject": [
+      "@deepseek-ai/dsh-client-runtime",
+      "@deepseek-ai/dsh-client-ui-slash",
+      "@deepseek-ai/dsh-client-ui-conversation",
+      "@deepseek-ai/dsh-client-ui-slots"
+    ],
+    "platform": "web"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@dsh-external/dsh-browser-bridge-protocol": "workspace:^",
+    "schemastery": "^3.18.0",
+    "ws": "^8.21.0"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-agent": "^0.0.1",
+    "@deepseek-ai/dsh-llm": "^0.0.1",
+    "@deepseek-ai/dsh-session": "^0.0.1",
+    "@deepseek-ai/dsh-tools": "^0.0.1",
+    "cordis": "^4.0.0-rc.7"
+  },
+  "devDependencies": {
+    "@deepseek-ai/dsh-agent": "link:../../.dsh/source/current/packages/core/agent",
+    "@deepseek-ai/dsh-agent-loop": "link:../../.dsh/source/current/packages/core/agent-loop",
+    "@deepseek-ai/dsh-client-runtime": "link:../../.dsh/source/current/packages/client/runtime",
+    "@deepseek-ai/dsh-client-ui-conversation": "link:../../.dsh/source/current/packages/client/ui-conversation",
+    "@deepseek-ai/dsh-client-ui-slash": "link:../../.dsh/source/current/packages/client/ui-slash",
+    "@deepseek-ai/dsh-client-ui-slots": "link:../../.dsh/source/current/packages/client/ui-slots",
+    "@deepseek-ai/dsh-host-webserver": "link:../../.dsh/source/current/packages/host/webserver",
+    "@deepseek-ai/dsh-llm": "link:../../.dsh/source/current/packages/llm/llm",
+    "@deepseek-ai/dsh-scope": "link:../../.dsh/source/current/packages/core/scope",
+    "@deepseek-ai/dsh-session": "link:../../.dsh/source/current/packages/core/session",
+    "@deepseek-ai/dsh-system-prompt": "link:../../.dsh/source/current/packages/core/system-prompt",
+    "@deepseek-ai/dsh-tools": "link:../../.dsh/source/current/packages/core/tools",
+    "@cordisjs/plugin-include": "link:../../.dsh/source/current/vendor/include",
+    "@cordisjs/plugin-loader": "link:../../.dsh/source/current/vendor/loader",
+    "@types/react": "~18.3.1",
+    "@types/ws": "^8.18.1",
+    "cordis": "link:../../.dsh/source/current/vendor/cordis",
+    "jsdom": "^26.1.0",
+    "react": "^18.2.0",
+    "react-test-renderer": "^18.2.0",
+    "tsdown": "^0.22.2",
+    "typescript": "^6.0.3",
+    "vite-tsconfig-paths": "^5.1.4",
+    "vitest": "^4.1.10"
+  },
+  "license": "BSD-3-Clause"
+}
