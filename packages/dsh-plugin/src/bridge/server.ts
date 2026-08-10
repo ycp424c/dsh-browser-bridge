@@ -18,6 +18,7 @@ import {
   type ConnectionId as ConnectionIdBrand,
   type JsonValue,
 } from '@dsh-external/dsh-browser-bridge-protocol'
+import type { WebSocket } from 'ws'
 import { GrantStore } from './grant-store.ts'
 import { PairingStore } from './pairing-store.ts'
 
@@ -35,6 +36,25 @@ export interface BridgeServerOptions {
   now?: () => number
   randomId?: () => string
   toolTimeoutMs?: number
+}
+
+/** Adapter over a `ws` socket for the real DSH host transport. */
+export function attachWebSocket(server: BridgeServer, socket: WebSocket, origin: string): void {
+  const adapter: BridgeSocket = {
+    send: text => {
+      if (socket.readyState === socket.OPEN) socket.send(text)
+    },
+    close: () => socket.close(),
+    onMessage: handler => {
+      socket.on('message', data => {
+        handler(typeof data === 'string' ? data : data.toString())
+      })
+    },
+    onClose: handler => {
+      socket.on('close', () => handler())
+    },
+  }
+  server.attach(adapter, origin)
 }
 
 interface PendingCall {
@@ -56,6 +76,7 @@ export class BridgeServer {
   private readonly toolTimeoutMs: number
   private connection: LiveConnection | null = null
   private readonly pending = new Map<string, PendingCall>()
+  private readonly connectionLostHandlers = new Set<() => void>()
 
   constructor(options: BridgeServerOptions) {
     this.pairing = options.pairing
@@ -114,6 +135,7 @@ export class BridgeServer {
       if (this.connection?.socket !== socket) return
       this.connection = null
       this.rejectAllPending(bridgeError('bridge_disconnected', 'browser extension connection closed', true))
+      for (const handler of this.connectionLostHandlers) handler()
     })
   }
 
@@ -128,6 +150,7 @@ export class BridgeServer {
       this.connection = null
       prior.socket.close()
       this.rejectAllPending(bridgeError('bridge_disconnected', 'browser extension connection replaced', true))
+      for (const handler of this.connectionLostHandlers) handler()
     }
     this.connection = { id: connectionId, socket }
     socket.send(encodeFrame({ v: PROTOCOL_VERSION, type: 'hello.ok', connectionId }))
@@ -186,6 +209,12 @@ export class BridgeServer {
       }
     }
     return affected
+  }
+
+  /** Register a handler for live-connection loss (close or replacement). */
+  onConnectionLost(handler: () => void): () => void {
+    this.connectionLostHandlers.add(handler)
+    return () => this.connectionLostHandlers.delete(handler)
   }
 
   /** Close the connection and reject everything pending. */

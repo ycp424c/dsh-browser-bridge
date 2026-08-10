@@ -1,0 +1,6 @@
+# dsh-browser-bridge profile bundle patch: one row mounting the external
+# plugin into the web profile. Applied as a bundle layer over the web-app
+# tree; defaults come from the plugin's Config schema.
+- insert:
+    - id: dsh-browser-bridge
+      name: '@dsh-external/dsh-browser-bridge'

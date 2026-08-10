@@ -1,0 +1,26 @@
+{
+  "extends": ["../../tsconfig.base.json", "../../.dsh/tsconfig.paths.json"],
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "verbatimModuleSyntax": false,
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "lib": ["ES2024", "DOM", "DOM.Iterable"],
+    "types": ["node"],
+    // Same vendor relaxations as the host program.
+    "exactOptionalPropertyTypes": false,
+    "noUncheckedIndexedAccess": false,
+    "noImplicitOverride": false,
+    "noImplicitAny": false,
+    "noImplicitThis": false
+  },
+  "include": [
+    "src/client/**/*.ts",
+    "src/client/**/*.tsx",
+    "tests/client-channel.spec.ts",
+    "tests/tab-source.spec.ts",
+    "tests/current-tab-button.spec.tsx"
+  ]
+}

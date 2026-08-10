@@ -1,0 +1,16 @@
+{
+  "name": "@dsh-external/dsh-browser-bridge",
+  "version": "0.1.0",
+  "description": "External DSH plugin (host + client) for the browser bridge",
+  "host": "lib/index.js",
+  "client": "lib/client.js",
+  "bundle": "cordis.patch.yml",
+  "config": {
+    "pairingTtlMs": 30000,
+    "grantTtlMs": 600000,
+    "toolTimeoutMs": 60000,
+    "consoleBufferSize": 200,
+    "networkBufferSize": 200,
+    "rawCdpEnabled": false
+  }
+}

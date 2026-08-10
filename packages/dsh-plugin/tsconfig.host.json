@@ -18,11 +18,16 @@
     "noImplicitAny": false,
     "noImplicitThis": false
   },
+  "exclude": ["src/client/**"],
   "include": [
     "src/**/*.ts",
     "src/**/*.tsx",
-    "tests/**/*.ts",
-    "tests/**/*.tsx",
+    "tests/pre-step.spec.ts",
+    "tests/bridge-server.spec.ts",
+    "tests/pairing-store.spec.ts",
+    "tests/grant-store.spec.ts",
+    "tests/tools.spec.ts",
+    "tests/apply.spec.ts",
     "tsdown.config.ts"
   ]
 }
