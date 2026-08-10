@@ -163,6 +163,38 @@ describe('CDP session manager', () => {
     expect(session.writeSuspended).toBe(true)
   })
 
+  it('seeds the session with the grant URL as the authorization baseline', async () => {
+    const { manager, api } = makeManager()
+    manager.bind({ grantId: GRANT_A, tabId: 7, url: 'http://127.0.0.1:4173/' })
+    const session = await manager.session(GRANT_A)
+    // The session knows the exact URL the grant was issued for BEFORE any
+    // navigation event arrives.
+    expect(session.currentUrl).toBe('http://127.0.0.1:4173/')
+    // The FIRST navigation — no prior priming — is already cross-origin
+    // relative to the grant baseline and must suspend writes.
+    api.emitEvent({ tabId: 7 }, 'Page.frameNavigated', {
+      frame: { id: 'frame-1', url: 'https://unexpected.example/', parentId: undefined },
+    })
+    expect(session.writeSuspended).toBe(true)
+  })
+
+  it('still authorizes the first navigation inside an expected-navigation window', async () => {
+    const { manager, api } = makeManager()
+    manager.bind({ grantId: GRANT_A, tabId: 7, url: 'http://127.0.0.1:4173/' })
+    const session = await manager.session(GRANT_A)
+    // browser_navigate/browser_act arm the window BEFORE the transition.
+    session.expectNavigation(5_000)
+    api.emitEvent({ tabId: 7 }, 'Page.frameNavigated', {
+      frame: { id: 'frame-1', url: 'https://target.example/', parentId: undefined },
+    })
+    expect(session.writeSuspended).toBe(false)
+    // A later unmarked cross-origin transition still suspends writes.
+    api.emitEvent({ tabId: 7 }, 'Page.frameNavigated', {
+      frame: { id: 'frame-1', url: 'https://unexpected.example/', parentId: undefined },
+    })
+    expect(session.writeSuspended).toBe(true)
+  })
+
   it('does not bump the generation for iframe navigation', async () => {
     const { manager, api } = makeManager()
     manager.bind({ grantId: GRANT_A, tabId: 7 })

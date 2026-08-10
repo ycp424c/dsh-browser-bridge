@@ -14,7 +14,9 @@ const TAB: TabDescriptor = { tabId: 9, windowId: 3, title: 'App', url: 'http://1
 
 class FakeBridge {
   sent: BridgeFrame[] = []
+  closed = false
   private frameHandlers = new Set<(frame: BridgeFrame) => void>()
+  private sessionChangedHandlers = new Set<() => void>()
 
   send(frame: BridgeFrame): void { this.sent.push(frame) }
   onFrame(handler: (frame: BridgeFrame) => void): () => void {
@@ -22,11 +24,21 @@ class FakeBridge {
     return () => this.frameHandlers.delete(handler)
   }
   onState(): () => void { return () => {} }
+  onSessionChanged(handler: () => void): () => void {
+    this.sessionChangedHandlers.add(handler)
+    return () => this.sessionChangedHandlers.delete(handler)
+  }
   connect(): void {}
-  close(): void {}
+  close(): void {
+    this.closed = true
+  }
 
   receive(frame: BridgeFrame): void {
     for (const handler of this.frameHandlers) handler(frame)
+  }
+
+  sessionChanged(): void {
+    for (const handler of this.sessionChangedHandlers) handler()
   }
 
   sentOf<T extends BridgeFrame['type']>(type: T): Extract<BridgeFrame, { type: T }>[] {
@@ -46,6 +58,7 @@ class FakeDebuggerApi implements ChromeDebuggerApi {
 class FakePort {
   readonly messages: unknown[] = []
   private messageHandlers = new Set<(message: unknown) => void>()
+  private disconnectHandlers = new Set<() => void>()
   readonly raw: chrome.runtime.Port
 
   constructor() {
@@ -58,7 +71,12 @@ class FakePort {
         hasListener: (handler: (message: unknown) => void) => self.messageHandlers.has(handler),
         hasListeners: () => self.messageHandlers.size > 0,
       },
-      onDisconnect: { addListener: () => {}, removeListener: () => {}, hasListener: () => false, hasListeners: () => false },
+      onDisconnect: {
+        addListener: (handler: () => void) => { self.disconnectHandlers.add(handler) },
+        removeListener: (handler: () => void) => { self.disconnectHandlers.delete(handler) },
+        hasListener: (handler: () => void) => self.disconnectHandlers.has(handler),
+        hasListeners: () => self.disconnectHandlers.size > 0,
+      },
       postMessage: (message: unknown) => { self.messages.push(message) },
       disconnect: () => {},
     } as unknown as chrome.runtime.Port
@@ -66,6 +84,11 @@ class FakePort {
 
   receive(message: unknown): void {
     for (const handler of this.messageHandlers) handler(message)
+  }
+
+  /** Fire the port's disconnect listeners (terminal panel loss). */
+  disconnect(): void {
+    for (const handler of this.disconnectHandlers) handler()
   }
 }
 
@@ -76,6 +99,7 @@ async function makeRouter(executor: ToolExecutor = async () => ({ ok: true })): 
   manager: CdpSessionManager
   debuggerApi: FakeDebuggerApi
   grantId: GrantId
+  port: FakePort
 }> {
   const bridge = new FakeBridge()
   const vault = new GrantVault()
@@ -98,7 +122,7 @@ async function makeRouter(executor: ToolExecutor = async () => ({ ok: true })): 
   await vi.waitFor(() => {
     expect(port.messages).toHaveLength(1)
   })
-  return { router, bridge, vault, manager, debuggerApi, grantId: put.grantId }
+  return { router, bridge, vault, manager, debuggerApi, grantId: put.grantId, port }
 }
 
 describe('extension recovery', () => {
@@ -166,6 +190,64 @@ describe('extension recovery', () => {
     off()
   })
 
+  it('sweeps grants created after the sweep started on an empty vault', async () => {
+    let now = 1_000
+    const vault = new GrantVault({ now: () => now, ttlMs: 60_000 })
+    const expired: GrantId[][] = []
+    // The real startup order: the sweep is started BEFORE any grant exists,
+    // so no timer is armed for the empty vault.
+    vault.startExpirySweep(ids => expired.push(ids))
+    const grant = vault.create({ sessionId: 's1', tab: TAB, ttlMs: 60_000 })
+    now = 1_000 + 61_000
+    await vi.advanceTimersByTimeAsync(61_000)
+    expect(expired).toEqual([[grant.grantId]])
+  })
+
+  it('re-arms the sweep after a grant created later expires', async () => {
+    let now = 1_000
+    const vault = new GrantVault({ now: () => now, ttlMs: 60_000 })
+    const expired: GrantId[][] = []
+    vault.startExpirySweep(ids => expired.push(ids))
+    const first = vault.create({ sessionId: 's1', tab: TAB, ttlMs: 60_000 })
+    const second = vault.create({ sessionId: 's1', tab: { ...TAB, tabId: 12 }, ttlMs: 120_000 })
+    now = 1_000 + 61_000
+    await vi.advanceTimersByTimeAsync(61_000)
+    expect(expired).toEqual([[first.grantId]])
+    // The sweep keeps running for the remaining grant instead of stopping.
+    now = 1_000 + 121_000
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(expired).toEqual([[first.grantId], [second.grantId]])
+  })
+
+  it('expiry revokes the CDP session and reports the grant for host notification', async () => {
+    let now = 1_000
+    const vault = new GrantVault({ now: () => now, ttlMs: 60_000 })
+    const debuggerApi = new FakeDebuggerApi()
+    const manager = new CdpSessionManager({ debuggerApi: new ChromeDebugger(debuggerApi as never, { lastError: () => undefined }) })
+    const revoked: GrantId[] = []
+    const notified: GrantId[] = []
+    // Mirrors the background wiring: the sweep revokes the CDP binding and
+    // notifies the host with grant.revoke.
+    vault.startExpirySweep(ids => {
+      for (const id of ids) {
+        manager.revoke(id)
+        revoked.push(id)
+        notified.push(id)
+      }
+    })
+    const grant = vault.create({ sessionId: 's1', tab: TAB, ttlMs: 60_000 })
+    manager.bind({ grantId: grant.grantId, tabId: TAB.tabId })
+    await manager.session(grant.grantId)
+    expect(debuggerApi.attach).toHaveBeenCalled()
+    now = 1_000 + 61_000
+    await vi.advanceTimersByTimeAsync(61_000)
+    expect(revoked).toEqual([grant.grantId])
+    expect(notified).toEqual([grant.grantId])
+    // The final grant of the tab is gone: the debugger session is released.
+    expect(debuggerApi.detach).toHaveBeenCalledWith({ tabId: 9 }, expect.any(Function))
+    expect(() => vault.resolve(grant.grantId)).toThrow(/grant expired/)
+  })
+
   it('exposes grants by tab for close-time revocation', () => {
     const vault = new GrantVault()
     const a = vault.create({ sessionId: 's1', tab: TAB })
@@ -186,5 +268,42 @@ describe('extension recovery', () => {
     expect(debuggerApi.detach).toHaveBeenCalledTimes(2)
     expect(debuggerApi.detach).toHaveBeenCalledWith({ tabId: 7 }, expect.any(Function))
     expect(debuggerApi.detach).toHaveBeenCalledWith({ tabId: 99 }, expect.any(Function))
+  })
+
+  it('panel-port loss is terminal: revokes grants, notifies the host, detaches CDP, and closes the bridge', async () => {
+    const { bridge, vault, debuggerApi, grantId, port } = await makeRouter()
+    // Execute one tool call so the debugger is attached.
+    bridge.receive({
+      v: PROTOCOL_VERSION, type: 'tool.call', requestId: 't1' as never, grantId, operation: 'observe', args: {},
+    })
+    await vi.waitFor(() => {
+      expect(debuggerApi.attach).toHaveBeenCalled()
+    })
+    // The side panel closes: the logical session is TERMINAL on both sides.
+    port.disconnect()
+    expect(vault.owned()).toEqual([])
+    expect(bridge.sentOf('grant.revoke')).toContainEqual(expect.objectContaining({ grantId }))
+    await vi.waitFor(() => {
+      expect(debuggerApi.detach).toHaveBeenCalled()
+    })
+    expect(bridge.closed).toBe(true)
+  })
+
+  it('revokes local grants and sessions when the bridge reports a new logical session', async () => {
+    const { bridge, vault, debuggerApi, grantId } = await makeRouter()
+    bridge.receive({
+      v: PROTOCOL_VERSION, type: 'tool.call', requestId: 't2' as never, grantId, operation: 'observe', args: {},
+    })
+    await vi.waitFor(() => {
+      expect(debuggerApi.attach).toHaveBeenCalled()
+    })
+    // The host restarted: hello.ok carries a different connection id and the
+    // client emits session-changed. Every grant of the dead session is
+    // revoked locally and the CDP session is released.
+    bridge.sessionChanged()
+    expect(vault.owned()).toEqual([])
+    await vi.waitFor(() => {
+      expect(debuggerApi.detach).toHaveBeenCalled()
+    })
   })
 })

@@ -62,11 +62,33 @@ export default defineBackground(() => {
         throw bridgeError('internal', `browser operation ${operation} is not wired yet`, false)
     }
   }
-  const router = new BridgeRouter({ bridge: client, vault, catalog, sessionManager, toolExecutor })
-  const panels = new Set<chrome.runtime.Port>()
   // One disposer registry for every background listener so recreation never
   // leaves duplicates behind.
   const disposers: Array<() => void> = []
+
+  // Startup reconciliation: detach ONLY the tab ids our previous session
+  // owned, clear the ledger, then accept new work. The returned promise is
+  // the readiness gate every panel request and bridge frame must wait for,
+  // so no grant or tool call can slip in while the old session's cleanup is
+  // still pending.
+  const reconcileStartup = async (): Promise<void> => {
+    const storage = chromeSettingsStorage(chrome.storage.session)
+    const ledger = await storage.get(OWNED_LEDGER_KEY)
+    if (ledger !== undefined) {
+      try {
+        const entries = JSON.parse(ledger) as Array<{ tabId: number }>
+        await sessionManager.cleanupOwned(entries.map(entry => entry.tabId))
+      } catch {
+        // A malformed ledger is discarded; cleanup is best-effort.
+      }
+    }
+    await chrome.storage.session.remove(OWNED_LEDGER_KEY)
+  }
+  const startupReady = reconcileStartup()
+  disposers.push(() => { void chrome.storage.session.remove(OWNED_LEDGER_KEY) })
+
+  const router = new BridgeRouter({ bridge: client, vault, catalog, sessionManager, toolExecutor, startupReady })
+  const panels = new Set<chrome.runtime.Port>()
 
   /** Notify the host about one revoked grant. */
   const notifyHostRevoke = (grantId: GrantId): void => {
@@ -83,23 +105,6 @@ export default defineBackground(() => {
     sessionManager.revoke(grantId)
     notifyHostRevoke(grantId)
   }
-
-  // Startup reconciliation: detach ONLY the tab ids our previous session
-  // owned, clear the ledger, then accept new work.
-  const reconcileStartup = async (): Promise<void> => {
-    const storage = chromeSettingsStorage(chrome.storage.session)
-    const ledger = await storage.get(OWNED_LEDGER_KEY)
-    if (ledger !== undefined) {
-      try {
-        const entries = JSON.parse(ledger) as Array<{ tabId: number }>
-        await sessionManager.cleanupOwned(entries.map(entry => entry.tabId))
-      } catch {
-        // A malformed ledger is discarded; cleanup is best-effort.
-      }
-    }
-    await chrome.storage.session.remove(OWNED_LEDGER_KEY)
-  }
-  disposers.push(() => { void chrome.storage.session.remove(OWNED_LEDGER_KEY) })
 
   // Ownership ledger mirror (non-secret { grantId, tabId } pairs only).
   const writeLedger = (): void => {
@@ -154,6 +159,4 @@ export default defineBackground(() => {
   }
   chrome.runtime.onConnect.addListener(onConnect)
   disposers.push(() => chrome.runtime.onConnect.removeListener(onConnect))
-
-  void reconcileStartup()
 })

@@ -94,6 +94,8 @@ export class CdpSessionManager {
   private readonly now: () => number
   private readonly sessions = new Map<number, TabSession>()
   private readonly grantToTab = new Map<string, number>()
+  /** The exact URL each grant was issued for (the authorization baseline). */
+  private readonly grantToUrl = new Map<string, string>()
   private readonly tabGrants = new Map<number, Set<string>>()
   private readonly pending = new Map<number, Set<PendingCommand>>()
 
@@ -106,8 +108,9 @@ export class CdpSessionManager {
   }
 
   /** Bind a grant to its exact tab WITHOUT attaching the debugger. */
-  bind(grant: { grantId: GrantId; tabId: number }): void {
+  bind(grant: { grantId: GrantId; tabId: number; url?: string }): void {
     this.grantToTab.set(grant.grantId, grant.tabId)
+    if (grant.url !== undefined) this.grantToUrl.set(grant.grantId, grant.url)
     let grants = this.tabGrants.get(grant.tabId)
     if (grants === undefined) {
       grants = new Set()
@@ -121,6 +124,7 @@ export class CdpSessionManager {
     const tabId = this.grantToTab.get(grantId)
     if (tabId === undefined) return
     this.grantToTab.delete(grantId)
+    this.grantToUrl.delete(grantId)
     const grants = this.tabGrants.get(tabId)
     grants?.delete(grantId)
     if (grants === undefined || grants.size === 0) {
@@ -149,7 +153,10 @@ export class CdpSessionManager {
     for (const tabId of [...this.sessions.keys()]) {
       const grants = this.tabGrants.get(tabId)
       if (grants !== undefined) {
-        for (const grantId of [...grants]) this.grantToTab.delete(grantId)
+        for (const grantId of [...grants]) {
+          this.grantToTab.delete(grantId)
+          this.grantToUrl.delete(grantId)
+        }
         this.tabGrants.delete(tabId)
       }
       void this.detachTab(tabId)
@@ -182,7 +189,9 @@ export class CdpSessionManager {
       networkEntries: [],
       networkRequestMethods: new Map(),
       send: (method, params) => this.sendTab(tabId, method, params),
-      currentUrl: '',
+      // Authorization baseline: the exact URL the grant was issued for, so
+      // the FIRST navigation event can already be classified cross-origin.
+      currentUrl: this.grantToUrl.get(grantId) ?? '',
       lastChangeAt: null,
       expectNavigationWindow: null,
       expectNavigation: (timeoutMs, expectedOrigin) => {

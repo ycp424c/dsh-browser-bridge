@@ -37,7 +37,36 @@ export class ExtensionChannel {
   private readonly randomId: () => string
   private readonly pending = new Map<string, PendingRequest>()
   private readonly parentHandlers = new Set<(message: unknown) => void>()
+  private disposed = false
   readonly extensionOrigin: string
+  /** Bound once so the constructor's listener can be removed on dispose. */
+  private readonly onMessage = (event: MessageEvent): void => {
+    if (event.source !== this.env.parent) return
+    if (event.origin !== this.extensionOrigin) return
+    const data = event.data as {
+      type?: string
+      requestId?: string
+      ok?: boolean
+      value?: unknown
+      error?: { code?: string; message?: string }
+    }
+    if (data?.type === 'panel.reply' && typeof data.requestId === 'string') {
+      const pending = this.pending.get(data.requestId)
+      if (pending === undefined) return
+      pending.finish()
+      if (data.ok === true) {
+        pending.resolve(data.value)
+      } else {
+        pending.reject(bridgeError(
+          (data.error?.code as BridgeErrorCode | undefined) ?? 'internal',
+          data.error?.message ?? 'extension rejected the request',
+          false,
+        ))
+      }
+      return
+    }
+    for (const handler of this.parentHandlers) handler(event.data)
+  }
 
   constructor(env: ExtensionChannelEnv, options: ExtensionChannelOptions = {}) {
     this.env = env
@@ -50,11 +79,29 @@ export class ExtensionChannel {
     this.extensionOrigin = match[1]!
     this.timeoutMs = options.timeoutMs ?? 10_000
     this.randomId = options.randomId ?? newRequestId
-    env.addMessageListener(event => this.onMessage(event))
+    env.addMessageListener(this.onMessage)
+  }
+
+  /**
+   * Remove the window listener and reject every pending request. Plugin
+   * unload/reload must call this, or the old channel keeps receiving parent
+   * messages and leaks its correlation state.
+   */
+  dispose(): void {
+    if (this.disposed) return
+    this.disposed = true
+    this.env.removeMessageListener(this.onMessage)
+    for (const pending of [...this.pending.values()]) {
+      pending.finish()
+      pending.reject(bridgeError('bridge_disconnected', 'extension channel disposed', false))
+    }
   }
 
   /** Send one request and wait for its correlated reply. */
   request<T>(type: string, payload: object, signal?: AbortSignal): Promise<T> {
+    if (this.disposed) {
+      return Promise.reject(bridgeError('bridge_disconnected', 'extension channel disposed', false))
+    }
     const requestId = this.randomId()
     return new Promise<T>((resolve, reject) => {
       const finish = () => {
@@ -89,6 +136,7 @@ export class ExtensionChannel {
 
   /** Fire-and-forget message to the parent (no reply expected). */
   post(message: unknown): void {
+    if (this.disposed) return
     this.env.postToParent(message, this.extensionOrigin)
   }
 
@@ -96,34 +144,6 @@ export class ExtensionChannel {
   onParentMessage(handler: (message: unknown) => void): () => void {
     this.parentHandlers.add(handler)
     return () => this.parentHandlers.delete(handler)
-  }
-
-  private onMessage(event: MessageEvent): void {
-    if (event.source !== this.env.parent) return
-    if (event.origin !== this.extensionOrigin) return
-    const data = event.data as {
-      type?: string
-      requestId?: string
-      ok?: boolean
-      value?: unknown
-      error?: { code?: string; message?: string }
-    }
-    if (data?.type === 'panel.reply' && typeof data.requestId === 'string') {
-      const pending = this.pending.get(data.requestId)
-      if (pending === undefined) return
-      pending.finish()
-      if (data.ok === true) {
-        pending.resolve(data.value)
-      } else {
-        pending.reject(bridgeError(
-          (data.error?.code as BridgeErrorCode | undefined) ?? 'internal',
-          data.error?.message ?? 'extension rejected the request',
-          false,
-        ))
-      }
-      return
-    }
-    for (const handler of this.parentHandlers) handler(event.data)
   }
 }
 

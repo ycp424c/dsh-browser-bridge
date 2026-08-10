@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { ExtensionChannel, channelFromWindow, type ExtensionChannelEnv } from '../src/client/extension-channel.ts'
 
 const EXT = 'chrome-extension://abcdefghijklmnopabcdefghijklmnop'
@@ -18,7 +18,7 @@ function makeEnv(overrides: Partial<ExtensionChannelEnv> = {}): TestEnv {
     referrer: `${EXT}/sidepanel.html`,
     parent: {},
     addMessageListener: (listener: (event: MessageEvent) => void) => { handler = listener },
-    removeMessageListener: () => { handler = null },
+    removeMessageListener: vi.fn(() => { handler = null }),
     postToParent: (message: unknown, target: string) => { sent.push({ message, target }) },
     ...overrides,
   }
@@ -137,5 +137,29 @@ describe('extension channel', () => {
     channel.post({ type: 'bridge.client-ready' })
     expect(sent).toHaveLength(1)
     expect(sent[0]).toMatchObject({ message: { type: 'bridge.client-ready' }, target: EXT })
+  })
+
+  it('dispose removes the window listener and rejects pending and new requests', async () => {
+    const { env, sent, deliver } = makeEnv()
+    const channel = new ExtensionChannel(env)
+    const pending = channel.request('tabs.list', {})
+    channel.dispose()
+    // The listener is gone: a late reply can no longer be received.
+    const request = sent[0]!.message as { requestId: string }
+    deliver(replyEvent(request.requestId, [{ tabId: 7 }], env.parent))
+    await expect(pending).rejects.toMatchObject({ code: 'bridge_disconnected' })
+    // New requests fail fast instead of leaking correlation state.
+    await expect(channel.request('tabs.list', {})).rejects.toMatchObject({ code: 'bridge_disconnected' })
+    channel.post({ type: 'bridge.client-ready' })
+    expect(sent).toHaveLength(1)
+    expect(env.removeMessageListener).toHaveBeenCalled()
+  })
+
+  it('dispose is idempotent', () => {
+    const { env } = makeEnv()
+    const channel = new ExtensionChannel(env)
+    channel.dispose()
+    channel.dispose()
+    expect(env.removeMessageListener).toHaveBeenCalledTimes(1)
   })
 })

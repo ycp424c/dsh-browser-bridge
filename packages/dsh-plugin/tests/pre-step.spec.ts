@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { agentEvents, Inbox, type Agent, type PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
@@ -101,6 +101,8 @@ interface Fixture {
   agent: Agent
   server: BridgeServer
   grants: GrantStore
+  pairing: PairingStore
+  socket: FakeSocket
   connectionId: string
   offer(connectionId: string, sessionId: string, tab: TabDescriptor, grantId?: string): string
 }
@@ -140,7 +142,7 @@ async function makeFixture(): Promise<Fixture> {
     })
     return record.handle
   }
-  return { ctx, agent, server, grants, connectionId, offer }
+  return { ctx, agent, server, grants, pairing, socket, connectionId, offer }
 }
 
 describe('pre-step marker consumption', () => {
@@ -208,6 +210,106 @@ describe('pre-step marker consumption', () => {
     const decision = await proposeStep(ctx, agent, userMessage('continue'), 1)
     expect(decision.kind).toBe('enter')
     expect(agent.ctx.tools.get('browser_observe', agent)).toBeDefined()
+  })
+
+  it('merges steering markers into the active turn so tools reach page_2', async () => {
+    const fixture = await makeFixture()
+    const { ctx, agent, connectionId, offer, socket } = fixture
+    const h1 = offer(connectionId, 'session-a', TAB)
+    const h2 = offer(connectionId, 'session-a', TAB2, 'g-steer-b')
+    const first = await proposeStep(ctx, agent, userMessage(`verify ${encodeMarker(h1)}`), 1)
+    expect(textOf(first)).toContain('id="page_1"')
+    // Steering adds a second tab to the SAME turn.
+    const second = await proposeStep(ctx, agent, userMessage(`also check ${encodeMarker(h2)}`), 1)
+    const text = textOf(second)
+    expect(text).toContain('id="page_2"')
+    expect(text).toContain('http://127.0.0.1:4174/')
+    // The tool closures capture the SAME pages array: page_2 is resolvable
+    // even though the tools were registered on the first pre-step.
+    const observe = agent.ctx.tools.get('browser_observe', agent)!
+    const pending = observe.execute(
+      { page: 'page_2' },
+      {
+        callId: 'c-steer' as never,
+        name: 'browser_observe',
+        arguments: { page: 'page_2' },
+        signal: new AbortController().signal,
+        agent,
+      } as never,
+    )
+    await vi.waitFor(() => {
+      const calls = socket.sent
+        .map(text => JSON.parse(text) as { type?: string; grantId?: string })
+        .filter(frame => frame.type === 'tool.call')
+      expect(calls).toContainEqual(expect.objectContaining({ grantId: 'g-steer-b', operation: 'observe' }))
+    })
+    const call = socket.sent
+      .map(text => JSON.parse(text) as { type?: string; requestId?: string })
+      .find(frame => frame.type === 'tool.call') as { requestId: string }
+    socket.receive(JSON.stringify({
+      v: 1,
+      type: 'tool.result',
+      requestId: call.requestId,
+      result: { ok: true, value: { page: { url: TAB2.url } } },
+    }))
+    await expect(pending).resolves.toMatchObject({ page: { url: TAB2.url } })
+  })
+
+  it('does not duplicate a tab already attached by the same turn', async () => {
+    const fixture = await makeFixture()
+    const { ctx, agent, connectionId, offer } = fixture
+    const handle = offer(connectionId, 'session-a', TAB)
+    await proposeStep(ctx, agent, userMessage(`verify ${encodeMarker(handle)}`), 1)
+    const second = await proposeStep(ctx, agent, userMessage(`again ${encodeMarker(handle)}`), 1)
+    const text = textOf(second)
+    expect(text).toContain('id="page_1"')
+    expect(text).not.toContain('page_2')
+  })
+
+  it('treats a dropped socket as transient: tools survive and a same-origin reconnect resumes the turn', async () => {
+    const fixture = await makeFixture()
+    const { ctx, agent, server, pairing, connectionId, offer, grants } = fixture
+    const handle = offer(connectionId, 'session-a', TAB, 'g-transient')
+    await proposeStep(ctx, agent, userMessage(`verify ${encodeMarker(handle)}`), 1)
+    expect(agent.ctx.tools.get('browser_observe', agent)).toBeDefined()
+    // The bridge socket drops while the side panel stays alive: the host
+    // must NOT tear the turn down (no disposeAll on connection loss) and
+    // the grant stays bound to the logical session.
+    fixture.socket.close()
+    expect(agent.ctx.tools.get('browser_observe', agent)).toBeDefined()
+    expect(grants.resolve(GrantId('g-transient'), connectionId)).toMatchObject({ grantId: 'g-transient' })
+    // A same-origin reconnect with a fresh nonce resumes the SAME session.
+    const second = new FakeSocket()
+    server.attach(second, EXT_A)
+    const nonce = pairing.issue(EXT_A)
+    second.receive(JSON.stringify({ v: 1, type: 'hello', pairingNonce: nonce }))
+    const ok = second.sent.map(text => JSON.parse(text)).find(frame => frame.type === 'hello.ok') as { connectionId: string }
+    expect(ok.connectionId).toBe(connectionId)
+    // The turn's tools work over the new connection with the same grant.
+    const observe = agent.ctx.tools.get('browser_observe', agent)!
+    const pending = observe.execute(
+      { page: 'page_1' },
+      {
+        callId: 'c-transient' as never,
+        name: 'browser_observe',
+        arguments: { page: 'page_1' },
+        signal: new AbortController().signal,
+        agent,
+      } as never,
+    )
+    await vi.waitFor(() => {
+      expect(second.sent.some(text => (JSON.parse(text) as { type?: string }).type === 'tool.call')).toBe(true)
+    })
+    const call = second.sent
+      .map(text => JSON.parse(text) as { type?: string; requestId?: string })
+      .find(frame => frame.type === 'tool.call') as { requestId: string }
+    second.receive(JSON.stringify({
+      v: 1,
+      type: 'tool.result',
+      requestId: call.requestId,
+      result: { ok: true, value: { page: { url: TAB.url } } },
+    }))
+    await expect(pending).resolves.toMatchObject({ page: { url: TAB.url } })
   })
 
   it('does not reuse a handle across turns', async () => {

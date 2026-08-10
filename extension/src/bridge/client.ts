@@ -45,9 +45,12 @@ export class BridgeClient {
   private reconnectAttempt = 0
   private heartbeatTimer: ReturnType<typeof setTimeout> | null = null
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  /** The connection id of the last authenticated logical session. */
+  private lastConnectionId: string | null = null
   private readonly stateHandlers = new Set<(state: BridgeClientState) => void>()
   private readonly frameHandlers = new Set<(frame: BridgeFrame) => void>()
   private readonly pairingRequiredHandlers = new Set<(delayMs: number) => void>()
+  private readonly sessionChangedHandlers = new Set<() => void>()
 
   constructor(options: BridgeClientOptions) {
     this.createSocket = options.createSocket
@@ -77,6 +80,16 @@ export class BridgeClient {
   }
 
   /**
+   * Called when a new `hello.ok` carries a DIFFERENT connection id than the
+   * previous logical session (the host process restarted or another session
+   * took over). Every grant of the old session must be revoked locally.
+   */
+  onSessionChanged(handler: () => void): () => void {
+    this.sessionChangedHandlers.add(handler)
+    return () => this.sessionChangedHandlers.delete(handler)
+  }
+
+  /**
    * Open a connection with one fresh single-use pairing nonce. A later
    * reconnect MUST supply a new nonce; this method never reuses the old one.
    */
@@ -89,9 +102,14 @@ export class BridgeClient {
     this.openSocket()
   }
 
-  /** Stop the client; no reconnect or pairing-required event follows. */
+  /**
+   * Stop the client; no reconnect or pairing-required event follows. This is
+   * the TERMINAL loss path (the panel port closed): the owner revokes every
+   * grant and CDP session before calling this.
+   */
   close(): void {
     this.owned = false
+    this.lastConnectionId = null
     this.clearReconnectTimer()
     this.clearHeartbeat()
     if (this.socket !== null) {
@@ -135,6 +153,13 @@ export class BridgeClient {
       return
     }
     if (frame.type === 'hello.ok') {
+      // A different connection id means the old logical session is gone
+      // (the host restarted or was replaced): local grants of that session
+      // must be revoked before any new work can use them.
+      if (this.lastConnectionId !== null && frame.connectionId !== this.lastConnectionId) {
+        for (const handler of this.sessionChangedHandlers) handler()
+      }
+      this.lastConnectionId = frame.connectionId
       this.setState('connected')
       this.startHeartbeat()
       return

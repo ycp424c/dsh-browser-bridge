@@ -69,6 +69,9 @@ export function apply(ctx: ClientContext): void {
       offPairingRequired()
       offSource()
       offSlot.dispose()
+      // Unload/reload must remove the window message listener, or the old
+      // channel keeps receiving parent traffic.
+      channel.dispose()
     }
   }, 'dsh-browser-bridge: client plugin')
 }

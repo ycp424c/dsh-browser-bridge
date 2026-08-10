@@ -40,6 +40,12 @@ export interface BridgeRouterDeps {
   /** Operation dispatcher; wired by the CDP task layers. */
   toolExecutor?: ToolExecutor
   grantAckTimeoutMs?: number
+  /**
+   * Startup reconciliation promise. Panel requests and bridge frames wait
+   * for it so a restarted worker can never process new work while its
+   * previous session's ownership ledger is still pending cleanup.
+   */
+  startupReady?: Promise<void>
 }
 
 export type ToolExecutor = (
@@ -84,6 +90,7 @@ export class BridgeRouter {
   private readonly sessionManager: CdpSessionManager
   private readonly toolExecutor: ToolExecutor | undefined
   private readonly grantAckTimeoutMs: number
+  private readonly startupReady: Promise<void>
   private readonly pendingGrants = new Map<string, PendingGrant>()
   /** Execution journal: requestId -> in-flight execution (dedupes duplicates). */
   private readonly inFlight = new Map<string, Promise<JsonValue>>()
@@ -98,7 +105,16 @@ export class BridgeRouter {
     this.sessionManager = deps.sessionManager
     this.toolExecutor = deps.toolExecutor
     this.grantAckTimeoutMs = deps.grantAckTimeoutMs ?? 10_000
+    this.startupReady = deps.startupReady ?? Promise.resolve()
     deps.bridge.onFrame(frame => this.onBridgeFrame(frame))
+    // A new logical session (host restart or takeover) invalidates every
+    // grant of the previous one: revoke locally and release all CDP
+    // sessions so no orphaned permission survives. The new host has no
+    // records for those grants, so there is nothing to notify.
+    deps.bridge.onSessionChanged(() => {
+      this.vault.revokeAll()
+      this.sessionManager.revokeAll()
+    })
   }
 
   /** Attach one side-panel runtime port. */
@@ -108,14 +124,29 @@ export class BridgeRouter {
     })
     port.onDisconnect.addListener(() => {
       // The bridge is panel-scoped: when the panel goes away, stop the
-      // connection and drop every grant and CDP session it owned.
-      this.vault.revokeAll()
+      // connection and drop every grant and CDP session it owned. The host
+      // is notified first so its grant records die with the session.
+      const revoked = this.vault.revokeAll()
+      for (const grantId of revoked) {
+        try {
+          this.bridge.send({ v: PROTOCOL_VERSION, type: 'grant.revoke', grantId })
+        } catch {
+          // The bridge may already be down; the host drops its grants on
+          // its own terminal paths.
+        }
+      }
       this.sessionManager.revokeAll()
       this.bridge.close()
     })
   }
 
+  /** No business request may run before startup reconciliation finishes. */
+  private async ready(): Promise<void> {
+    await this.startupReady
+  }
+
   private async handlePanelMessage(port: chrome.runtime.Port, message: unknown): Promise<void> {
+    await this.ready()
     const raw = message as { type?: string; payload?: unknown }
     // The panel forwards iframe messages as `panel.forward` wrappers; tests
     // and direct panel traffic may also arrive unwrapped.
@@ -209,13 +240,19 @@ export class BridgeRouter {
   }
 
   private onBridgeFrame(frame: BridgeFrame): void {
+    void this.ready().then(() => this.handleFrame(frame))
+  }
+
+  private handleFrame(frame: BridgeFrame): void {
     if (frame.type === 'grant.accepted') {
       const pending = this.pendingGrants.get(frame.grantId)
       if (pending === undefined) return
       this.vault.accept(frame.grantId, frame.handle)
-      // Bind the CDP session WITHOUT attaching the debugger.
+      // Bind the CDP session WITHOUT attaching the debugger. The grant's
+      // exact URL becomes the session's authorization baseline so the first
+      // navigation can already be classified cross-origin.
       const grant = this.vault.resolve(frame.grantId)
-      this.sessionManager.bind({ grantId: frame.grantId, tabId: grant.tab.tabId })
+      this.sessionManager.bind({ grantId: frame.grantId, tabId: grant.tab.tabId, url: grant.tab.url })
       pending.resolve(frame.handle)
       return
     }

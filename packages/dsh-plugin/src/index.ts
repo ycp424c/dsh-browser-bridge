@@ -95,9 +95,12 @@ export function apply(ctx: Context, config: ConfigShape): void {
     const offDisposed = ctx.on('agent/disposed', ({ agent }) => {
       preStep.dispose(agent)
     })
-    const offConnectionLost = server.onConnectionLost(() => {
-      preStep.disposeAll()
-    })
+    // A dropped socket is TRANSIENT: the extension reconnects with a fresh
+    // pairing nonce and resumes the same logical session (the server
+    // preserves the connection id per extension origin), so tools and
+    // grants stay alive and one read retry remains possible. Only terminal
+    // paths — this cleanup, connection takeover, turn end, expiry — revoke
+    // grants and tools.
 
     return () => {
       offPair()
@@ -105,9 +108,12 @@ export function apply(ctx: Context, config: ConfigShape): void {
       offPreStep()
       offTurnStopping()
       offDisposed()
-      offConnectionLost()
-      wss.close()
+      // Terminal: remove turn-scoped tools, then revoke every remaining
+      // grant of the live connection (consumed and pending offers) with
+      // grant.revoke frames before the socket closes.
+      preStep.disposeAll()
       server.dispose()
+      wss.close()
     }
   }, 'dsh-browser-bridge: host plugin')
 }

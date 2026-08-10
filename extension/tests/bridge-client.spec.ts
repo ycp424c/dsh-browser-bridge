@@ -132,6 +132,35 @@ describe('bridge client', () => {
     expect(hello).toMatchObject({ pairingNonce: 'nonce-two' })
   })
 
+  it('emits session-changed only when a reconnect carries a different connection id', () => {
+    let socket = new FakeSocket()
+    const client = new BridgeClient({ createSocket: () => socket, heartbeatMs: 20_000 })
+    const changed: number[] = []
+    client.onSessionChanged(() => changed.push(1))
+    client.connect('ws://x', 'nonce-one')
+    socket.open()
+    socket.receive(helloOk())
+    // Same host process reconnects: same connection id, no session change.
+    socket.close()
+    socket = new FakeSocket()
+    client.connect('ws://x', 'nonce-two')
+    socket.open()
+    socket.receive(helloOk())
+    expect(changed).toEqual([])
+    // The host restarted: the new hello.ok carries a different id, which
+    // means the previous logical session (and its grants) is dead.
+    socket.close()
+    socket = new FakeSocket()
+    client.connect('ws://x', 'nonce-three')
+    socket.open()
+    socket.receive(JSON.stringify({
+      v: PROTOCOL_VERSION,
+      type: 'hello.ok',
+      connectionId: ConnectionId('c2'),
+    }))
+    expect(changed).toEqual([1])
+  })
+
   it('forwards decoded frames to listeners', () => {
     const socket = new FakeSocket()
     const client = new BridgeClient({ createSocket: () => socket, heartbeatMs: 20_000 })

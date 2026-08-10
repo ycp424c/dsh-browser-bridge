@@ -36,6 +36,8 @@ export class GrantVault {
   private readonly defaultTtlMs: number
   private readonly grants = new Map<string, VaultGrant>()
   private expiryTimer: ReturnType<typeof setTimeout> | null = null
+  private sweepActive = false
+  private onExpired: ((grantIds: GrantId[]) => void) | null = null
   private readonly listeners = new Set<() => void>()
 
   constructor(options: GrantVaultOptions = {}) {
@@ -64,6 +66,7 @@ export class GrantVault {
     }
     this.grants.set(grantId, grant)
     this.notify()
+    this.schedule()
     return grant
   }
 
@@ -85,6 +88,7 @@ export class GrantVault {
     grant.state = 'revoked'
     this.grants.delete(grantId)
     this.notify()
+    this.schedule()
   }
 
   /** Record the host's acceptance and its non-secret correlation handle. */
@@ -95,6 +99,7 @@ export class GrantVault {
     }
     grant.state = 'accepted'
     grant.handle = handle as GrantHandle
+    this.schedule()
   }
 
   /** Revoke everything; returns the affected grant ids. */
@@ -102,6 +107,7 @@ export class GrantVault {
     const affected = [...this.grants.keys()] as GrantId[]
     this.grants.clear()
     this.notify()
+    this.schedule()
     return affected
   }
 
@@ -140,40 +146,50 @@ export class GrantVault {
   }
 
   /**
-   * Schedule one expiry sweep for the nearest deadline, repeating until the
-   * vault is empty. Expired grants are dropped and reported through
-   * `onExpired`; returns a disposer that stops the sweep.
+   * Schedule one expiry sweep for the nearest deadline, re-arming whenever
+   * grants are created, accepted, or revoked. The sweep starts even when the
+   * vault is empty: grants created later must still expire on time. Expired
+   * grants are dropped and reported through `onExpired`; the returned
+   * disposer stops the sweep.
    */
   startExpirySweep(onExpired: (grantIds: GrantId[]) => void): () => void {
-    const schedule = (): void => {
-      const nearest = this.nearestExpiry()
-      if (nearest === undefined) {
-        this.expiryTimer = null
-        return
-      }
-      const delay = Math.max(1, nearest - this.now())
-      this.expiryTimer = setTimeout(() => {
-        this.expiryTimer = null
-        const expired: GrantId[] = []
-        for (const [grantId, grant] of [...this.grants]) {
-          if (this.now() > grant.expiresAt) {
-            this.grants.delete(grantId)
-            expired.push(grantId as GrantId)
-          }
-        }
-        if (expired.length > 0) {
-          onExpired(expired)
-          this.notify()
-        }
-        schedule()
-      }, delay)
-    }
-    schedule()
+    this.onExpired = onExpired
+    this.sweepActive = true
+    this.schedule()
     return () => {
+      this.sweepActive = false
+      this.onExpired = null
       if (this.expiryTimer !== null) {
         clearTimeout(this.expiryTimer)
         this.expiryTimer = null
       }
     }
+  }
+
+  /** (Re-)arm the expiry timer for the nearest deadline, if a sweep is active. */
+  private schedule(): void {
+    if (!this.sweepActive) return
+    if (this.expiryTimer !== null) {
+      clearTimeout(this.expiryTimer)
+      this.expiryTimer = null
+    }
+    const nearest = this.nearestExpiry()
+    if (nearest === undefined) return
+    const delay = Math.max(1, nearest - this.now())
+    this.expiryTimer = setTimeout(() => {
+      this.expiryTimer = null
+      const expired: GrantId[] = []
+      for (const [grantId, grant] of [...this.grants]) {
+        if (this.now() > grant.expiresAt) {
+          this.grants.delete(grantId)
+          expired.push(grantId as GrantId)
+        }
+      }
+      if (expired.length > 0) {
+        this.onExpired?.(expired)
+        this.notify()
+      }
+      this.schedule()
+    }, delay)
   }
 }

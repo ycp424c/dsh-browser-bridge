@@ -78,6 +78,8 @@ interface PendingCall {
 interface LiveConnection {
   id: ConnectionIdBrand
   socket: BridgeSocket
+  /** The authenticated extension origin the connection belongs to. */
+  origin: string
 }
 
 export class BridgeServer {
@@ -88,8 +90,10 @@ export class BridgeServer {
   private readonly toolTimeoutMs: number
   private readonly readRetryWaitMs: number
   private connection: LiveConnection | null = null
+  /** The last closed connection, so a reconnect from the SAME extension
+   * origin resumes the same logical session (connection id preserved). */
+  private lastConnection: { id: ConnectionIdBrand; origin: string } | null = null
   private readonly pending = new Map<string, PendingCall>()
-  private readonly connectionLostHandlers = new Set<() => void>()
   private readonly wiredSockets = new Set<BridgeSocket>()
 
   constructor(options: BridgeServerOptions) {
@@ -143,9 +147,22 @@ export class BridgeServer {
         return
       }
       handshaken = true
-      const id = ConnectionId(this.randomId())
-      this.acceptAuthenticated(socket, id)
+      this.acceptAuthenticated(socket, this.connectionIdForOrigin(origin), origin)
     })
+  }
+
+  /**
+   * The connection id of a reconnect from the same extension origin is the
+   * id of the closed connection it replaces: a transient reconnect resumes
+   * the SAME logical session, so grants, tools, and read retries survive.
+   * A different origin (or a takeover of a live connection) always gets a
+   * fresh id — a new logical session.
+   */
+  private connectionIdForOrigin(origin: string): ConnectionIdBrand {
+    if (this.lastConnection !== null && this.lastConnection.origin === origin) {
+      return this.lastConnection.id
+    }
+    return ConnectionId(this.randomId())
   }
 
   /** Register message/close handling exactly once per socket. */
@@ -165,27 +182,55 @@ export class BridgeServer {
     socket.onClose(() => {
       this.wiredSockets.delete(socket)
       if (this.connection?.socket !== socket) return
+      const closed = this.connection
       this.connection = null
-      this.handleConnectionLost(bridgeError('bridge_disconnected', 'browser extension connection closed', true))
-      for (const handler of this.connectionLostHandlers) handler()
+      // A dropped socket is TRANSIENT: the same extension may reconnect with
+      // a fresh pairing nonce and resume this logical session, so the id is
+      // remembered and read retries stay armed for the bounded window.
+      this.lastConnection = { id: closed.id, origin: closed.origin }
+      this.handleConnectionLost(
+        bridgeError('bridge_disconnected', 'browser extension connection closed', true),
+        { retryReads: true },
+      )
     })
   }
 
   /**
    * Promote a socket to the live connection (used by the handshake and by
-   * tests that pre-authenticate). A replacement closes the prior connection
-   * and rejects its pending calls.
+   * tests that pre-authenticate). A live connection replaced by another
+   * socket from a DIFFERENT extension origin is TERMINAL for the prior
+   * session: its grants are revoked and notified before the socket closes,
+   * and its pending calls reject without retry — a foreign session must
+   * never observe another session's work. A same-origin replacement (a
+   * reconnect race from the same extension) continues the same logical
+   * session: the connection id and grants survive and read retries stay
+   * armed.
    */
-  acceptAuthenticated(socket: BridgeSocket, connectionId: ConnectionIdBrand = ConnectionId(this.randomId())): void {
+  acceptAuthenticated(
+    socket: BridgeSocket,
+    connectionId: ConnectionIdBrand = ConnectionId(this.randomId()),
+    origin = '',
+  ): void {
     this.wireSocket(socket)
     const prior = this.connection
     if (prior != null && prior.socket !== socket) {
+      const sameOrigin = origin !== '' && prior.origin === origin
+      if (sameOrigin) {
+        // The same extension replaced a still-open socket: the logical
+        // session continues under the same connection id.
+        connectionId = prior.id
+      } else {
+        this.sendRevokes(prior.socket, this.grants.revokeConnection(prior.id))
+      }
       this.connection = null
       prior.socket.close()
-      this.handleConnectionLost(bridgeError('bridge_disconnected', 'browser extension connection replaced', true))
-      for (const handler of this.connectionLostHandlers) handler()
+      this.handleConnectionLost(
+        bridgeError('bridge_disconnected', 'browser extension connection replaced', true),
+        { retryReads: sameOrigin },
+      )
     }
-    this.connection = { id: connectionId, socket }
+    this.connection = { id: connectionId, socket, origin }
+    this.lastConnection = null
     socket.send(encodeFrame({ v: PROTOCOL_VERSION, type: 'hello.ok', connectionId }))
     // A newly authenticated connection may carry one retry for read calls.
     for (const [requestId, pending] of [...this.pending]) {
@@ -200,6 +245,13 @@ export class BridgeServer {
         v: PROTOCOL_VERSION, type: 'tool.call', requestId: freshId,
         grantId: pending.grantId, operation: pending.operation, args: pending.args,
       }))
+    }
+  }
+
+  /** Send `grant.revoke` frames for one socket, best-effort. */
+  private sendRevokes(socket: BridgeSocket, grantIds: GrantId[]): void {
+    for (const grantId of grantIds) {
+      socket.send(encodeFrame({ v: PROTOCOL_VERSION, type: 'grant.revoke', grantId }))
     }
   }
 
@@ -254,9 +306,7 @@ export class BridgeServer {
   revokeConnection(connectionId: string): GrantId[] {
     const affected = this.grants.revokeConnection(connectionId)
     if (this.connection !== null) {
-      for (const grantId of affected) {
-        this.connection.socket.send(encodeFrame({ v: PROTOCOL_VERSION, type: 'grant.revoke', grantId }))
-      }
+      this.sendRevokes(this.connection.socket, affected)
     }
     return affected
   }
@@ -272,20 +322,23 @@ export class BridgeServer {
     return affected
   }
 
-  /** Register a handler for live-connection loss (close or replacement). */
-  onConnectionLost(handler: () => void): () => void {
-    this.connectionLostHandlers.add(handler)
-    return () => this.connectionLostHandlers.delete(handler)
-  }
-
-  /** Close the connection and reject everything pending. */
+  /**
+   * Close the connection and reject everything pending. Terminal for the
+   * whole bridge session: every remaining grant is revoked and the
+   * extension is notified before the socket closes.
+   */
   dispose(): void {
     if (this.connection !== null) {
-      const socket = this.connection.socket
+      const connection = this.connection
+      this.sendRevokes(connection.socket, this.grants.revokeConnection(connection.id))
       this.connection = null
-      socket.close()
+      connection.socket.close()
     }
-    this.handleConnectionLost(bridgeError('bridge_disconnected', 'browser bridge disposed', true))
+    this.handleConnectionLost(
+      bridgeError('bridge_disconnected', 'browser bridge disposed', true),
+      { retryReads: false },
+    )
+    this.lastConnection = null
   }
 
   /** Handle one authenticated inbound frame from the live connection. */
@@ -352,13 +405,15 @@ export class BridgeServer {
   }
 
   /**
-   * Connection loss handling: writes reject immediately and are never
-   * replayed; reads may wait for one newly authenticated connection and
-   * resend once with a fresh request id.
+   * Connection loss handling. A TRANSIENT drop (socket close) rejects
+   * writes immediately and lets reads wait for one same-session reconnect.
+   * A TERMINAL loss (connection takeover or bridge disposal) rejects
+   * everything immediately: pending work is never retried against a foreign
+   * or dead session, and write operations are never replayed.
    */
-  private handleConnectionLost(error: BridgeError): void {
+  private handleConnectionLost(error: BridgeError, options: { retryReads: boolean } = { retryReads: true }): void {
     for (const [requestId, pending] of [...this.pending]) {
-      if (pending.retried || !isReadOperation(pending.operation)) {
+      if (!options.retryReads || pending.retried || !isReadOperation(pending.operation)) {
         pending.finish()
         pending.reject(error)
         continue

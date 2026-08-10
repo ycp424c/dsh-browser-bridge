@@ -143,11 +143,14 @@ export function createPreStepHandler(deps: PreStepHandlerDeps): PreStepHandler {
     const sessionId = String(payload.agent.session.header.id)
     const turn = payload.turn
 
-    const pages: ActiveTurn['pages'] = []
-    const summaries = new Map<string, string>()
-    const aliasByGrantId = new Map<string, string>()
+    // Steering may add markers to the SAME turn: the new pages are appended
+    // to the active turn's shared pages array so the already-registered tool
+    // closures (which close over that exact array) can resolve page_2+.
     const existing = active.get(payload.agent)
-    const base = existing !== undefined && existing.turn === turn ? existing.pages.length : 0
+    const current = existing !== undefined && existing.turn === turn ? existing : undefined
+    const pages = current?.pages ?? []
+    const summaries = new Map<string, string>()
+    const aliasByGrantId = new Map(pages.map(page => [page.grantId, page.alias]))
 
     for (const { marker, handle } of markers) {
       let record
@@ -163,15 +166,14 @@ export function createPreStepHandler(deps: PreStepHandlerDeps): PreStepHandler {
       }
       let alias = aliasByGrantId.get(record.grantId)
       if (alias === undefined) {
-        alias = `page_${base + aliasByGrantId.size + 1}`
+        alias = `page_${pages.length + 1}`
         aliasByGrantId.set(record.grantId, alias)
         pages.push({ alias, grantId: record.grantId, tab: record.tab })
       }
       summaries.set(marker, renderSummary(alias, record.tab))
     }
 
-    let current = active.get(payload.agent)
-    if (current === undefined || current.turn !== turn) {
+    if (current === undefined) {
       const turnState: ActiveTurn = {
         agent: payload.agent,
         connectionId: connectionId ?? '',
@@ -190,9 +192,6 @@ export function createPreStepHandler(deps: PreStepHandlerDeps): PreStepHandler {
         throw error
       }
       active.set(payload.agent, turnState)
-    } else {
-      // Steering added markers to the same turn; the shared pages array is
-      // already extended, so existing tool closures see the new page.
     }
 
     const rewritten = rewriteMessages(decision.messages, summaries)

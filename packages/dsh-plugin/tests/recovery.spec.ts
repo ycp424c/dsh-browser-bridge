@@ -8,6 +8,7 @@ import { PairingStore } from '../src/bridge/pairing-store.ts'
 import { BridgeServer, type BridgeSocket } from '../src/bridge/server.ts'
 
 const EXT_A = 'chrome-extension://abcdefghijklmnopabcdefghijklmnop'
+const EXT_B = 'chrome-extension://bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
 const FIXTURE_URL = 'http://127.0.0.1:4173/'
 
 class FakeSocket implements BridgeSocket {
@@ -149,5 +150,64 @@ describe('bridge recovery', () => {
     // The extension executed and answered; the host already settled.
     firstSocket.receive(toolResultFor(call.requestId, { page: { url: FIXTURE_URL } }))
     await expect(pending).resolves.toMatchObject({ page: { url: FIXTURE_URL } })
+  })
+
+  it('reuses the connection id across a same-origin reconnect (transient)', async () => {
+    const fixture = await makeFixture()
+    const { server, pairing, connectionId, socket: firstSocket } = fixture
+    firstSocket.close()
+    const secondSocket = new FakeSocket()
+    server.attach(secondSocket, EXT_A)
+    const nonce = pairing.issue(EXT_A)
+    secondSocket.receive(JSON.stringify({ v: PROTOCOL_VERSION, type: 'hello', pairingNonce: nonce }))
+    const ok = secondSocket.sentOf('hello.ok') as { connectionId: string }
+    // A transient reconnect resumes the SAME logical session: grants and
+    // tools bound to the old connection id keep working.
+    expect(ok.connectionId).toBe(connectionId)
+  })
+
+  it('terminal dispose revokes grants, notifies the extension, and rejects pending calls', async () => {
+    const fixture = await makeFixture()
+    const { server, grants, grantId, socket } = fixture
+    const pending = server.request(grantId, 'observe', {}, new AbortController().signal)
+    server.dispose()
+    // Every grant of the connection is gone on both sides: the store is
+    // empty and the extension received grant.revoke before the socket closed.
+    expect(grants.revokeConnection(fixture.connectionId)).toEqual([])
+    expect(socket.frames().filter(frame => frame.type === 'grant.revoke'))
+      .toContainEqual(expect.objectContaining({ grantId }))
+    await expect(pending).rejects.toMatchObject({ code: 'bridge_disconnected' })
+  })
+
+  it('a foreign takeover revokes the prior grants and never retries its reads', async () => {
+    const fixture = await makeFixture()
+    const { server, pairing, grants, grantId, socket: firstSocket } = fixture
+    const pending = server.request(grantId, 'observe', {}, new AbortController().signal)
+    const secondSocket = new FakeSocket()
+    server.attach(secondSocket, EXT_B)
+    const nonce = pairing.issue(EXT_B)
+    secondSocket.receive(JSON.stringify({ v: PROTOCOL_VERSION, type: 'hello', pairingNonce: nonce }))
+    // The prior session is terminal: grants revoked and notified...
+    expect(grants.revokeConnection(fixture.connectionId)).toEqual([])
+    expect(firstSocket.frames().filter(frame => frame.type === 'grant.revoke'))
+      .toContainEqual(expect.objectContaining({ grantId }))
+    expect(firstSocket.closed).toBe(true)
+    // ...and the foreign connection never observes the old session's reads.
+    expect(secondSocket.frames().filter(frame => frame.type === 'tool.call')).toHaveLength(0)
+    await expect(pending).rejects.toMatchObject({ code: 'bridge_disconnected' })
+  })
+
+  it('keeps grants and a fresh logical session after a foreign takeover replaces the old one', async () => {
+    const fixture = await makeFixture()
+    const { server, pairing, connectionId, socket: firstSocket } = fixture
+    firstSocket.close()
+    // EXT_B reconnects: a different extension is a NEW logical session and
+    // must receive a different connection id.
+    const secondSocket = new FakeSocket()
+    server.attach(secondSocket, EXT_B)
+    const nonce = pairing.issue(EXT_B)
+    secondSocket.receive(JSON.stringify({ v: PROTOCOL_VERSION, type: 'hello', pairingNonce: nonce }))
+    const ok = secondSocket.sentOf('hello.ok') as { connectionId: string }
+    expect(ok.connectionId).not.toBe(connectionId)
   })
 })

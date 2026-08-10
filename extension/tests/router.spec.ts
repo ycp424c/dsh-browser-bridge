@@ -16,6 +16,7 @@ class FakeBridge {
   sent: BridgeFrame[] = []
   connected = true
   private frameHandlers = new Set<(frame: BridgeFrame) => void>()
+  private sessionChangedHandlers = new Set<() => void>()
   state: BridgeClientState = 'connected'
 
   send(frame: BridgeFrame): void {
@@ -37,6 +38,11 @@ class FakeBridge {
   }
 
   onState(): () => void { return () => {} }
+
+  onSessionChanged(handler: () => void): () => void {
+    this.sessionChangedHandlers.add(handler)
+    return () => this.sessionChangedHandlers.delete(handler)
+  }
 
   receive(frame: BridgeFrame): void {
     for (const handler of this.frameHandlers) handler(frame)
@@ -82,7 +88,7 @@ class FakePort {
   }
 }
 
-function makeRouter(overrides: { catalog?: TabCatalog; toolExecutor?: ToolExecutor } = {}): {
+function makeRouter(overrides: { catalog?: TabCatalog; toolExecutor?: ToolExecutor; startupReady?: Promise<void> } = {}): {
   router: BridgeRouter
   bridge: FakeBridge
   vault: GrantVault
@@ -105,6 +111,7 @@ function makeRouter(overrides: { catalog?: TabCatalog; toolExecutor?: ToolExecut
     catalog,
     sessionManager: manager,
     ...(overrides.toolExecutor !== undefined ? { toolExecutor: overrides.toolExecutor } : {}),
+    ...(overrides.startupReady !== undefined ? { startupReady: overrides.startupReady } : {}),
   })
   return { router, bridge, vault, catalog, manager, debuggerApi }
 }
@@ -123,6 +130,76 @@ class FakeDebuggerApi implements ChromeDebuggerApi {
 }
 
 describe('bridge router', () => {
+  it('defers panel requests and bridge frames until startup reconciliation finishes', async () => {
+    // Startup reconciliation is a delayed storage read + best-effort cleanup;
+    // while it is pending, NO business traffic may be processed.
+    let release!: () => void
+    const startupReady = new Promise<void>(resolve => { release = resolve })
+    const { router, bridge, vault } = makeRouter({ startupReady })
+    const port = new FakePort()
+    router.connectPanel(port.raw)
+
+    // Panel requests before readiness: nothing is answered, no grant.put.
+    port.receive({ type: 'tabs.current', requestId: 'r1' })
+    port.receive({ type: 'grant.create', requestId: 'r2', sessionId: 's1', tab: { ...TAB } })
+    // Bridge frames before readiness: no acknowledgement, no execution.
+    bridge.receive({
+      v: PROTOCOL_VERSION,
+      type: 'tool.call',
+      requestId: RequestId('t1'),
+      grantId: GrantId('g-gated'),
+      operation: 'observe',
+      args: {},
+    })
+    await vi.waitFor(() => {
+      // Give any (buggy) immediate handling a chance to run.
+    })
+    expect(port.replies()).toEqual([])
+    expect(bridge.sentOf('grant.put')).toBeUndefined()
+    expect(bridge.sentOf('tool.accepted')).toBeUndefined()
+    expect(bridge.sentOf('tool.result')).toBeUndefined()
+    expect(vault.owned()).toEqual([])
+
+    // Readiness resolves: deferred requests flow; the deferred tool call
+    // fails closed because its grant was never accepted.
+    release()
+    await vi.waitFor(() => {
+      expect(port.replies()).toHaveLength(1)
+      expect(bridge.sentOf('grant.put')).toBeDefined()
+      expect(bridge.sentOf('tool.result')).toBeDefined()
+    })
+    expect(port.replies()[0]).toMatchObject({ requestId: 'r1', ok: true, value: { tabId: 9 } })
+    expect(bridge.sentOf('tool.result')).toMatchObject({
+      requestId: RequestId('t1'),
+      result: { ok: false, error: { code: 'grant_expired' } },
+    })
+    // The deferred grant.create completes once the host acknowledges it.
+    const put = bridge.sentOf('grant.put') as GrantPutFrame
+    bridge.receive({
+      v: PROTOCOL_VERSION,
+      type: 'grant.accepted',
+      grantId: put.grantId,
+      handle: GrantHandle('h'.repeat(32)),
+    })
+    await vi.waitFor(() => {
+      expect(port.replies()).toHaveLength(2)
+    })
+    expect(port.replies()[1]).toMatchObject({ requestId: 'r2', ok: true })
+    expect(vault.owned()).toHaveLength(1)
+  })
+
+  it('processes work immediately once startup reconciliation already finished', async () => {
+    const { router, bridge } = makeRouter({ startupReady: Promise.resolve() })
+    const port = new FakePort()
+    router.connectPanel(port.raw)
+    port.receive({ type: 'tabs.current', requestId: 'r1' })
+    await vi.waitFor(() => {
+      expect(port.replies()).toHaveLength(1)
+    })
+    expect(port.replies()[0]).toMatchObject({ requestId: 'r1', ok: true })
+    expect(bridge.sentOf('grant.put')).toBeUndefined()
+  })
+
   it('replies to tabs.current with the current tab descriptor', async () => {
     const { router } = makeRouter()
     const port = new FakePort()
@@ -222,6 +299,33 @@ describe('bridge router', () => {
     })
     expect(debuggerApi.attach).not.toHaveBeenCalled()
     expect(vault.resolve(put.grantId).state).toBe('accepted')
+  })
+
+  it('binds the accepted grant with its exact URL as the authorization baseline', async () => {
+    const { router, bridge, manager } = makeRouter()
+    const bindSpy = vi.spyOn(manager, 'bind')
+    const port = new FakePort()
+    router.connectPanel(port.raw)
+    port.receive({ type: 'grant.create', requestId: 'r1', sessionId: 's1', tab: { ...TAB } })
+    await vi.waitFor(() => {
+      expect(bridge.sentOf('grant.put')).toBeDefined()
+    })
+    const put = bridge.sentOf('grant.put') as GrantPutFrame
+    bridge.receive({
+      v: PROTOCOL_VERSION,
+      type: 'grant.accepted',
+      grantId: put.grantId,
+      handle: GrantHandle('h'.repeat(32)),
+    })
+    await vi.waitFor(() => {
+      expect(bindSpy).toHaveBeenCalled()
+    })
+    // The session baseline is the exact URL observed at grant issue time.
+    expect(bindSpy).toHaveBeenCalledWith({
+      grantId: put.grantId,
+      tabId: 9,
+      url: 'http://127.0.0.1:4173/',
+    })
   })
 
   it('routes a tool call to the exact grant session without querying the active tab', async () => {
