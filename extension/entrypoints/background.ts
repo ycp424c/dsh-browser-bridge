@@ -8,6 +8,9 @@ import { CdpSessionManager, type TabSession } from '../src/cdp/session-manager.t
 import { ChromeDebugger } from '../src/cdp/chrome-debugger.ts'
 import { observePage, type ObserveArgs } from '../src/cdp/observe.ts'
 import { inspectElement, type InspectArgs } from '../src/cdp/inspect.ts'
+import { performAction, type ActAction } from '../src/cdp/act.ts'
+import { navigatePage, type NavigateArgs } from '../src/cdp/navigate.ts'
+import { waitForCondition, type WaitCondition } from '../src/cdp/wait.ts'
 import { bridgeError, type BrowserOperation, type JsonValue } from '@dsh-external/dsh-browser-bridge-protocol'
 import type { BridgeClientState } from '../src/bridge/client.ts'
 import type { ToolExecutor } from '../src/bridge/router.ts'
@@ -37,6 +40,14 @@ export default defineBackground(() => {
         return (await observePage(session, (args ?? {}) as ObserveArgs)) as unknown as JsonValue
       case 'inspect':
         return (await inspectElement(session, (args ?? {}) as InspectArgs)) as unknown as JsonValue
+      case 'act':
+        return (await performAction(session, (args as { action: ActAction }).action)) as unknown as JsonValue
+      case 'navigate':
+        return (await navigatePage(session, (args ?? {}) as NavigateArgs)) as unknown as JsonValue
+      case 'wait':
+        return (await waitForCondition(session, (args as { condition: WaitCondition }).condition, {
+          timeoutMs: 30_000,
+        })) as unknown as JsonValue
       default:
         throw bridgeError('internal', `browser operation ${operation} is not wired yet`, false)
     }

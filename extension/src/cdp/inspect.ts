@@ -34,8 +34,8 @@ function matchesDefaultSet(name: string): boolean {
     typeof pattern === 'string' ? pattern === name : pattern.test(name))
 }
 
-/** Resolve a ref or selector to a frontend node id. */
-async function resolveNode(session: TabSession, args: InspectArgs): Promise<number> {
+/** Resolve a ref or selector to a frontend node id (shared with actions). */
+export async function resolveNode(session: TabSession, args: { ref?: string; selector?: string }): Promise<number> {
   if (args.ref !== undefined) {
     const record = session.refs.resolve(args.ref, session.generation)
     const pushed = await session.send('DOM.pushNodesByBackendIdsToFrontend', {

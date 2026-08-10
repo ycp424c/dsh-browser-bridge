@@ -31,6 +31,24 @@ export interface TabSession {
   networkEntries: Array<{ timestamp: number; method: string; url: string; status?: number; error?: string }>
   /** Send one CDP command on this tab's session. */
   send(method: string, params?: object): Promise<unknown>
+  /** The last observed main-frame URL ('' until the first navigation event). */
+  currentUrl: string
+  /** Timestamp of the latest DOM/lifecycle/main-frame change (stable waits). */
+  lastChangeAt: number | null
+  /** Open expected-navigation window, or null. */
+  expectNavigationWindow: { until: number; expectedOrigin: string | null } | null
+  /** Arm an expected-navigation window for the next main-frame navigation. */
+  expectNavigation(timeoutMs: number, expectedOrigin?: string): void
+  /** Handle one main-frame navigation: authorize or suspend writes. */
+  onMainFrameNavigated(url: string, opts: { expected: boolean }): void
+}
+
+function originOf(url: string): string {
+  try {
+    return new URL(url).origin
+  } catch {
+    return url
+  }
 }
 
 export interface SessionDetachInfo {
@@ -42,6 +60,7 @@ export interface SessionDetachInfo {
 export interface CdpSessionManagerOptions {
   debuggerApi: ChromeDebuggerApi
   onDetach?: (info: SessionDetachInfo) => void
+  now?: () => number
 }
 
 interface PendingCommand {
@@ -52,6 +71,7 @@ interface PendingCommand {
 export class CdpSessionManager {
   private readonly debuggerApi: ChromeDebuggerApi
   private readonly onDetach: ((info: SessionDetachInfo) => void) | undefined
+  private readonly now: () => number
   private readonly sessions = new Map<number, TabSession>()
   private readonly grantToTab = new Map<string, number>()
   private readonly tabGrants = new Map<number, Set<string>>()
@@ -60,6 +80,7 @@ export class CdpSessionManager {
   constructor(options: CdpSessionManagerOptions) {
     this.debuggerApi = options.debuggerApi
     this.onDetach = options.onDetach
+    this.now = options.now ?? Date.now
     this.debuggerApi.onEvent.addListener((source, method, params) => this.handleEvent(source, method, params))
     this.debuggerApi.onDetach.addListener((source, reason) => this.handleDetach(source, reason))
   }
@@ -125,6 +146,29 @@ export class CdpSessionManager {
       consoleEntries: [],
       networkEntries: [],
       send: (method, params) => this.sendTab(tabId, method, params),
+      currentUrl: '',
+      lastChangeAt: null,
+      expectNavigationWindow: null,
+      expectNavigation: (timeoutMs, expectedOrigin) => {
+        session.expectNavigationWindow = {
+          until: this.now() + timeoutMs,
+          expectedOrigin: expectedOrigin ?? null,
+        }
+      },
+      onMainFrameNavigated: (url, opts) => {
+        session.lastChangeAt = this.now()
+        const window = session.expectNavigationWindow
+        if (window !== null && this.now() <= window.until) {
+          session.expectNavigationWindow = null
+          session.currentUrl = url
+          return
+        }
+        session.expectNavigationWindow = null
+        session.currentUrl = url
+        if (!opts.expected && originOf(url) !== originOf(session.currentUrl)) {
+          session.writeSuspended = true
+        }
+      },
     }
     this.sessions.set(tabId, session)
     for (const domain of ENABLED_DOMAINS) {
@@ -181,7 +225,13 @@ export class CdpSessionManager {
       // Main-frame document navigation: new document generation.
       session.generation += 1
       session.refs.clear()
+      session.onMainFrameNavigated(event.frame.url ?? '', {
+        expected: session.expectNavigationWindow !== null && this.now() <= session.expectNavigationWindow.until,
+      })
       return
+    }
+    if (method === 'DOM.documentUpdated' || method === 'Page.lifecycleEvent' || method === 'Page.navigatedWithinDocument') {
+      session.lastChangeAt = this.now()
     }
     // Console and network evidence capture lands with the capture task;
     // the buffers already exist on the session.
