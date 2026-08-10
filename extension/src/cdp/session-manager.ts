@@ -9,6 +9,7 @@ import {
 } from '@dsh-external/dsh-browser-bridge-protocol'
 import type { ChromeDebuggerApi } from './chrome-debugger.ts'
 import { NodeRegistry } from './nodes.ts'
+import { EVIDENCE_BUFFER_SIZE, normalizeConsoleEntry, normalizeNetworkEntry, pushBounded } from './capture.ts'
 
 export const CDP_PROTOCOL_VERSION = '1.3'
 
@@ -232,9 +233,17 @@ export class CdpSessionManager {
     }
     if (method === 'DOM.documentUpdated' || method === 'Page.lifecycleEvent' || method === 'Page.navigatedWithinDocument') {
       session.lastChangeAt = this.now()
+      return
     }
-    // Console and network evidence capture lands with the capture task;
-    // the buffers already exist on the session.
+    if (method === 'Runtime.consoleAPICalled' || method === 'Log.entryAdded') {
+      const row = normalizeConsoleEntry(method, params)
+      if (row !== null) pushBounded(session.consoleEntries, row, EVIDENCE_BUFFER_SIZE)
+      return
+    }
+    if (method === 'Network.requestWillBeSent' || method === 'Network.responseReceived' || method === 'Network.loadingFailed') {
+      const row = normalizeNetworkEntry(method, params)
+      if (row !== null) pushBounded(session.networkEntries, row, EVIDENCE_BUFFER_SIZE)
+    }
   }
 
   /** Handle a chrome.debugger detach for one of our sessions. */

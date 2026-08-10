@@ -11,6 +11,7 @@ import { inspectElement, type InspectArgs } from '../src/cdp/inspect.ts'
 import { performAction, type ActAction } from '../src/cdp/act.ts'
 import { navigatePage, type NavigateArgs } from '../src/cdp/navigate.ts'
 import { waitForCondition, type WaitCondition } from '../src/cdp/wait.ts'
+import { captureScreenshot } from '../src/cdp/capture.ts'
 import { bridgeError, type BrowserOperation, type JsonValue } from '@dsh-external/dsh-browser-bridge-protocol'
 import type { BridgeClientState } from '../src/bridge/client.ts'
 import type { ToolExecutor } from '../src/bridge/router.ts'
@@ -48,6 +49,12 @@ export default defineBackground(() => {
         return (await waitForCondition(session, (args as { condition: WaitCondition }).condition, {
           timeoutMs: 30_000,
         })) as unknown as JsonValue
+      case 'screenshot':
+        return (await captureScreenshot(session, (args ?? {}) as { ref?: string; selector?: string })) as unknown as JsonValue
+      case 'console':
+        return { entries: session.consoleEntries }
+      case 'network':
+        return { entries: session.networkEntries }
       default:
         throw bridgeError('internal', `browser operation ${operation} is not wired yet`, false)
     }
