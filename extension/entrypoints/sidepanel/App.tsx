@@ -1,10 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import {
-  DSH_ORIGIN_STORAGE_KEY,
+  chromeSettingsStorage,
   loadDshOrigin,
   normalizeDshOrigin,
   saveDshOrigin,
-  type SettingsStorage,
 } from '../../src/settings.ts'
 import { Button } from '../../src/components/ui/button.tsx'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '../../src/components/ui/card.tsx'
@@ -19,15 +18,6 @@ const STATUS_LABEL: Record<BridgeClientState, string> = {
   closed: 'Bridge closed',
 }
 
-function chromeSettingsStorage(): SettingsStorage {
-  return {
-    get: async (key: string) => (await chrome.storage.local.get(key))[key] as string | undefined,
-    set: async (key: string, value: string) => {
-      await chrome.storage.local.set({ [key]: value })
-    },
-  }
-}
-
 export default function App() {
   const [origin, setOrigin] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
@@ -36,7 +26,7 @@ export default function App() {
   const portRef = useRef<chrome.runtime.Port | null>(null)
 
   useEffect(() => {
-    void loadDshOrigin(chromeSettingsStorage()).then(loaded => {
+    void loadDshOrigin(chromeSettingsStorage(chrome.storage.local)).then(loaded => {
       setOrigin(loaded)
       setDraft(loaded)
     })
@@ -78,7 +68,7 @@ export default function App() {
 
   const save = async () => {
     try {
-      const normalized = await saveDshOrigin(chromeSettingsStorage(), draft)
+      const normalized = await saveDshOrigin(chromeSettingsStorage(chrome.storage.local), draft)
       setOrigin(normalized)
     } catch {
       setOrigin(null)

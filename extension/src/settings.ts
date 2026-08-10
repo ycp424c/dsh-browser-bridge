@@ -37,6 +37,16 @@ export interface SettingsStorage {
   set(key: string, value: string): Promise<void>
 }
 
+/** Adapter over a `chrome.storage` area (local or session). */
+export function chromeSettingsStorage(area: chrome.storage.StorageArea): SettingsStorage {
+  return {
+    get: async (key: string) => (await area.get(key))[key] as string | undefined,
+    set: async (key: string, value: string) => {
+      await area.set({ [key]: value })
+    },
+  }
+}
+
 export async function loadDshOrigin(storage: SettingsStorage): Promise<string> {
   const saved = await storage.get(DSH_ORIGIN_STORAGE_KEY)
   if (saved === undefined) return DEFAULT_DSH_ORIGIN
