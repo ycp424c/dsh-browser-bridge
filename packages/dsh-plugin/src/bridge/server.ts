@@ -166,7 +166,7 @@ export class BridgeServer {
       this.wiredSockets.delete(socket)
       if (this.connection?.socket !== socket) return
       this.connection = null
-      this.onConnectionLost(bridgeError('bridge_disconnected', 'browser extension connection closed', true))
+      this.handleConnectionLost(bridgeError('bridge_disconnected', 'browser extension connection closed', true))
       for (const handler of this.connectionLostHandlers) handler()
     })
   }
@@ -182,7 +182,7 @@ export class BridgeServer {
     if (prior != null && prior.socket !== socket) {
       this.connection = null
       prior.socket.close()
-      this.onConnectionLost(bridgeError('bridge_disconnected', 'browser extension connection replaced', true))
+      this.handleConnectionLost(bridgeError('bridge_disconnected', 'browser extension connection replaced', true))
       for (const handler of this.connectionLostHandlers) handler()
     }
     this.connection = { id: connectionId, socket }
@@ -285,7 +285,7 @@ export class BridgeServer {
       this.connection = null
       socket.close()
     }
-    this.onConnectionLost(bridgeError('bridge_disconnected', 'browser bridge disposed', true))
+    this.handleConnectionLost(bridgeError('bridge_disconnected', 'browser bridge disposed', true))
   }
 
   /** Handle one authenticated inbound frame from the live connection. */
@@ -356,7 +356,7 @@ export class BridgeServer {
    * replayed; reads may wait for one newly authenticated connection and
    * resend once with a fresh request id.
    */
-  private onConnectionLost(error: BridgeError): void {
+  private handleConnectionLost(error: BridgeError): void {
     for (const [requestId, pending] of [...this.pending]) {
       if (pending.retried || !isReadOperation(pending.operation)) {
         pending.finish()
