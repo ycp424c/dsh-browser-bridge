@@ -1,0 +1,32 @@
+/* Current-tab attachment button. Uses DSH CSS variables; no shadcn in the
+   host page. */
+
+.dsh-bb-current-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  height: 1.75rem;
+  padding: 0 0.6rem;
+  border: 1px solid var(--bb-border, color-mix(in srgb, currentColor 25%, transparent));
+  border-radius: 0.5rem;
+  background: var(--bb-surface, transparent);
+  color: var(--bb-text, inherit);
+  font-size: 0.8rem;
+  line-height: 1;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.dsh-bb-current-tab:hover:not(:disabled) {
+  border-color: var(--bb-accent, currentColor);
+}
+
+.dsh-bb-current-tab:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.dsh-bb-current-tab-error {
+  color: var(--bb-error, inherit);
+  font-size: 0.7rem;
+}

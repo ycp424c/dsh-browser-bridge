@@ -57,6 +57,8 @@
     "cordis": "^4.0.0-rc.7"
   },
   "devDependencies": {
+    "@cordisjs/plugin-include": "link:../../.dsh/source/current/vendor/include",
+    "@cordisjs/plugin-loader": "link:../../.dsh/source/current/vendor/loader",
     "@deepseek-ai/dsh-agent": "link:../../.dsh/source/current/packages/core/agent",
     "@deepseek-ai/dsh-agent-loop": "link:../../.dsh/source/current/packages/core/agent-loop",
     "@deepseek-ai/dsh-client-runtime": "link:../../.dsh/source/current/packages/client/runtime",
@@ -69,9 +71,9 @@
     "@deepseek-ai/dsh-session": "link:../../.dsh/source/current/packages/core/session",
     "@deepseek-ai/dsh-system-prompt": "link:../../.dsh/source/current/packages/core/system-prompt",
     "@deepseek-ai/dsh-tools": "link:../../.dsh/source/current/packages/core/tools",
-    "@cordisjs/plugin-include": "link:../../.dsh/source/current/vendor/include",
-    "@cordisjs/plugin-loader": "link:../../.dsh/source/current/vendor/loader",
+    "@types/node": "^22.0.0",
     "@types/react": "~18.3.1",
+    "@types/react-test-renderer": "^18.3.1",
     "@types/ws": "^8.18.1",
     "cordis": "link:../../.dsh/source/current/vendor/cordis",
     "jsdom": "^26.1.0",

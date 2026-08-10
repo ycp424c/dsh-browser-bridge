@@ -6,8 +6,17 @@
     "verbatimModuleSyntax": false,
     "allowImportingTsExtensions": true,
     "noEmit": true,
+    "jsx": "react-jsx",
     "lib": ["ES2024", "DOM", "DOM.Iterable"],
-    "types": ["node"]
+    "types": ["node"],
+    // The linked DSH checkout vendors cordis/cosmokit/schemastery, whose own
+    // tsconfigs relax these flags (the same relaxation DSH applies per
+    // package). Our own code still compiles under `strict`.
+    "exactOptionalPropertyTypes": false,
+    "noUncheckedIndexedAccess": false,
+    "noImplicitOverride": false,
+    "noImplicitAny": false,
+    "noImplicitThis": false
   },
   "include": [
     "src/**/*.ts",
