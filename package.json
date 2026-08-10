@@ -13,6 +13,7 @@
     "typecheck": "node scripts/sync-dsh-tsconfig.mjs && pnpm -r typecheck",
     "test": "pnpm -r test",
     "test:e2e": "playwright test",
+    "zip": "pnpm --filter @dsh-external/dsh-browser-bridge-extension zip",
     "check": "pnpm typecheck && pnpm test && pnpm build"
   },
   "devDependencies": {

@@ -36,5 +36,12 @@
     "ws": "^8.21.0",
     "zod": "^4.4.3"
   },
-  "license": "BSD-3-Clause"
+  "license": "BSD-3-Clause",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dsh-external/dsh-browser-bridge.git"
+  },
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  }
 }

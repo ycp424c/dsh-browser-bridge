@@ -1,0 +1,83 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+env:
+  # The DSH source is never vendored: CI checks out the exact revision the
+  # plugin was developed against and links it with the workspace linker.
+  DSH_SOURCE_REPO: https://github.com/dsh2026/test-ycp424c.git
+  DSH_SOURCE_REVISION: 30cc9edc36fdeb00f804b370481c12fb6764633d
+  # Keep Playwright browsers inside the workspace (gitignored).
+  PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.pw-browsers
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.19
+          cache: pnpm
+
+      - name: Check out the pinned DSH source
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/.ci"
+          git clone --filter=blob:none --no-checkout "$DSH_SOURCE_REPO" "$GITHUB_WORKSPACE/.ci/dsh"
+          git -C "$GITHUB_WORKSPACE/.ci/dsh" checkout "$DSH_SOURCE_REVISION"
+
+      - name: Link the DSH source
+        run: pnpm link:dsh -- "$GITHUB_WORKSPACE/.ci/dsh"
+
+      - name: Install dependencies (frozen)
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Unit tests
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      - name: Package dry-runs
+        run: |
+          pnpm --filter @dsh-external/dsh-browser-bridge pack --dry-run
+          pnpm --filter @dsh-external/dsh-browser-bridge-protocol pack --dry-run
+
+      - name: Extension zip
+        run: pnpm --filter @dsh-external/dsh-browser-bridge-extension zip
+
+      - name: Install Chromium (full binary, repo-local cache)
+        run: pnpm exec playwright install chromium
+
+      - name: Headed extension tests under Xvfb
+        run: xvfb-run -a env HEADED=1 pnpm exec playwright test e2e/extension.spec.ts
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.pw-browsers
+
+      - name: Upload extension artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chrome-mv3
+          path: extension/.output/chrome-mv3
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
