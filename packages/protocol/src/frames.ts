@@ -8,7 +8,7 @@ import { BRIDGE_ERROR_CODES, bridgeErrorSchema } from './errors.ts'
 import { BROWSER_OPERATIONS, jsonValueSchema, tabDescriptorSchema } from './grants.ts'
 import type { BridgeError } from './errors.ts'
 import type { BrowserOperation, JsonValue, TabDescriptor } from './grants.ts'
-import type { ConnectionId, GrantId, PairingNonce, RequestId } from './ids.ts'
+import type { ConnectionId, GrantHandle, GrantId, PairingNonce, RequestId } from './ids.ts'
 
 /** Current bridge protocol version (bump on any incompatible frame change). */
 export const PROTOCOL_VERSION = 1
@@ -39,6 +39,7 @@ export const grantAcceptedFrameSchema = z.strictObject({
   v: versionLiteral,
   type: z.literal('grant.accepted'),
   grantId: z.string().min(1),
+  handle: z.string().min(32).max(64),
 })
 export const grantRevokeFrameSchema = z.strictObject({
   v: versionLiteral,
@@ -113,6 +114,7 @@ export interface GrantAcceptedFrame {
   v: typeof PROTOCOL_VERSION
   type: 'grant.accepted'
   grantId: GrantId
+  handle: GrantHandle
 }
 export interface GrantRevokeFrame {
   v: typeof PROTOCOL_VERSION
