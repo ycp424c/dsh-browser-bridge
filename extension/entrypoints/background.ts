@@ -4,9 +4,13 @@ import { BridgeRouter } from '../src/bridge/router.ts'
 import { GrantVault } from '../src/grants/vault.ts'
 import { TabCatalog } from '../src/tabs/catalog.ts'
 import { chromeSettingsStorage, DSH_ORIGIN_STORAGE_KEY, loadDshOrigin } from '../src/settings.ts'
-import { CdpSessionManager } from '../src/cdp/session-manager.ts'
+import { CdpSessionManager, type TabSession } from '../src/cdp/session-manager.ts'
 import { ChromeDebugger } from '../src/cdp/chrome-debugger.ts'
+import { observePage, type ObserveArgs } from '../src/cdp/observe.ts'
+import { inspectElement, type InspectArgs } from '../src/cdp/inspect.ts'
+import { bridgeError, type BrowserOperation, type JsonValue } from '@dsh-external/dsh-browser-bridge-protocol'
 import type { BridgeClientState } from '../src/bridge/client.ts'
+import type { ToolExecutor } from '../src/bridge/router.ts'
 
 export default defineBackground(() => {
   void chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })
@@ -21,7 +25,21 @@ export default defineBackground(() => {
       // notified through their tool.result failures.
     },
   })
-  const router = new BridgeRouter({ bridge: client, vault, catalog, sessionManager })
+  const toolExecutor: ToolExecutor = async (
+    session: TabSession,
+    operation: BrowserOperation,
+    args: JsonValue,
+  ): Promise<JsonValue> => {
+    switch (operation) {
+      case 'observe':
+        return observePage(session, (args ?? {}) as ObserveArgs)
+      case 'inspect':
+        return inspectElement(session, (args ?? {}) as InspectArgs)
+      default:
+        throw bridgeError('internal', `browser operation ${operation} is not wired yet`, false)
+    }
+  }
+  const router = new BridgeRouter({ bridge: client, vault, catalog, sessionManager, toolExecutor })
   const panels = new Set<chrome.runtime.Port>()
 
   // The configured DSH origin is never attachable; refresh on settings change.

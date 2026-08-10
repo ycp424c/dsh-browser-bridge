@@ -29,6 +29,8 @@ export interface TabSession {
   /** Console/network evidence buffers (start empty, cleared on detach). */
   consoleEntries: Array<{ timestamp: number; level: string; text: string; url: string }>
   networkEntries: Array<{ timestamp: number; method: string; url: string; status?: number; error?: string }>
+  /** Send one CDP command on this tab's session. */
+  send(method: string, params?: object): Promise<unknown>
 }
 
 export interface SessionDetachInfo {
@@ -122,6 +124,7 @@ export class CdpSessionManager {
       writeSuspended: false,
       consoleEntries: [],
       networkEntries: [],
+      send: (method, params) => this.sendTab(tabId, method, params),
     }
     this.sessions.set(tabId, session)
     for (const domain of ENABLED_DOMAINS) {
@@ -138,15 +141,20 @@ export class CdpSessionManager {
   /** Send one CDP command on a grant's session; tracked for detach rejection. */
   async send(grantId: GrantId, method: string, params?: object): Promise<unknown> {
     const session = await this.session(grantId)
+    return this.sendTab(session.tabId, method, params)
+  }
+
+  /** Send one CDP command on a tab's session; tracked for detach rejection. */
+  private async sendTab(tabId: number, method: string, params?: object): Promise<unknown> {
     return new Promise((resolve, reject) => {
-      let pending: Set<PendingCommand> | undefined = this.pending.get(session.tabId)
+      let pending: Set<PendingCommand> | undefined = this.pending.get(tabId)
       if (pending === undefined) {
         pending = new Set()
-        this.pending.set(session.tabId, pending)
+        this.pending.set(tabId, pending)
       }
       const entry: PendingCommand = { resolve, reject }
       pending.add(entry)
-      this.debuggerApi.sendCommand({ tabId: session.tabId }, method, params).then(
+      this.debuggerApi.sendCommand({ tabId }, method, params).then(
         result => {
           pending?.delete(entry)
           resolve(result)
