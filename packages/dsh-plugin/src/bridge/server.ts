@@ -93,6 +93,14 @@ export class BridgeServer {
   /** The last closed connection, so a reconnect from the SAME extension
    * origin resumes the same logical session (connection id preserved). */
   private lastConnection: { id: ConnectionIdBrand; origin: string } | null = null
+  /**
+   * Tombstone/outbox for revocations that could not be delivered while a
+   * logical session was disconnected. Same-origin reconnects flush the
+   * queued `grant.revoke` frames BEFORE any read retry or new work, so a
+   * turn that ended during a transient drop still tears the grant and CDP
+   * session down on the extension side.
+   */
+  private readonly revokeOutbox = new Map<string, Set<GrantId>>()
   private readonly pending = new Map<string, PendingCall>()
   private readonly wiredSockets = new Set<BridgeSocket>()
 
@@ -221,6 +229,10 @@ export class BridgeServer {
         connectionId = prior.id
       } else {
         this.sendRevokes(prior.socket, this.grants.revokeConnection(prior.id))
+        // The prior session is TERMINAL: its outbox can never be resumed
+        // under the same id, and a later reconnect from that extension is a
+        // fresh logical session (its own sessionChanged revokes locally).
+        this.revokeOutbox.delete(prior.id)
       }
       this.connection = null
       prior.socket.close()
@@ -232,6 +244,10 @@ export class BridgeServer {
     this.connection = { id: connectionId, socket, origin }
     this.lastConnection = null
     socket.send(encodeFrame({ v: PROTOCOL_VERSION, type: 'hello.ok', connectionId }))
+    // A resumed session first delivers every revocation queued while it was
+    // disconnected: the extension must drop those grants and detach their
+    // CDP sessions BEFORE any read retry or new work is sent.
+    this.flushRevokeOutbox(connectionId, socket)
     // A newly authenticated connection may carry one retry for read calls.
     for (const [requestId, pending] of [...this.pending]) {
       if (!pending.retried || pending.retryTimer === null) continue
@@ -252,6 +268,48 @@ export class BridgeServer {
   private sendRevokes(socket: BridgeSocket, grantIds: GrantId[]): void {
     for (const grantId of grantIds) {
       socket.send(encodeFrame({ v: PROTOCOL_VERSION, type: 'grant.revoke', grantId }))
+    }
+  }
+
+  /**
+   * Deliver revocations for one logical session: directly when it is live,
+   * otherwise queue them in the session's outbox for the next same-origin
+   * reconnect.
+   */
+  private deliverRevokes(connectionId: string, grantIds: GrantId[]): void {
+    if (grantIds.length === 0) return
+    if (this.connection !== null && this.connection.id === connectionId) {
+      this.sendRevokes(this.connection.socket, grantIds)
+      return
+    }
+    let queued = this.revokeOutbox.get(connectionId)
+    if (queued === undefined) {
+      queued = new Set()
+      this.revokeOutbox.set(connectionId, queued)
+    }
+    for (const grantId of grantIds) queued.add(grantId)
+  }
+
+  /** Send every queued revocation of one connection and drop the outbox. */
+  private flushRevokeOutbox(connectionId: string, socket: BridgeSocket): void {
+    const queued = this.revokeOutbox.get(connectionId)
+    if (queued === undefined) return
+    this.revokeOutbox.delete(connectionId)
+    if (queued.size === 0) return
+    this.sendRevokes(socket, [...queued])
+  }
+
+  /**
+   * Reject every pending call whose grant was just revoked: a revoked grant
+   * must never complete, retry, or replay its work after turn cleanup.
+   */
+  private cancelPendingForGrants(grantIds: readonly GrantId[]): void {
+    if (grantIds.length === 0) return
+    const affected = new Set(grantIds)
+    for (const pending of [...this.pending.values()]) {
+      if (!affected.has(pending.grantId)) continue
+      pending.finish()
+      pending.reject(bridgeError('grant_expired', 'grant revoked before the call completed', false))
     }
   }
 
@@ -305,20 +363,21 @@ export class BridgeServer {
   /** Revoke every grant of a connection and notify the extension. */
   revokeConnection(connectionId: string): GrantId[] {
     const affected = this.grants.revokeConnection(connectionId)
-    if (this.connection !== null) {
-      this.sendRevokes(this.connection.socket, affected)
-    }
+    this.deliverRevokes(connectionId, affected)
+    this.cancelPendingForGrants(affected)
     return affected
   }
 
-  /** Revoke the grants of one turn and notify the extension. */
+  /**
+   * Revoke the grants of one turn and notify the extension. When the
+   * connection is down the revocations are queued for the next same-origin
+   * reconnect, and every pending call of the revoked grants is cancelled
+   * immediately — never retried or replayed.
+   */
   revokeTurn(connectionId: string, sessionId: string, turn: number): GrantId[] {
     const affected = this.grants.revokeTurn(connectionId, sessionId, turn)
-    if (this.connection !== null) {
-      for (const grantId of affected) {
-        this.connection.socket.send(encodeFrame({ v: PROTOCOL_VERSION, type: 'grant.revoke', grantId }))
-      }
-    }
+    this.deliverRevokes(connectionId, affected)
+    this.cancelPendingForGrants(affected)
     return affected
   }
 
@@ -339,6 +398,8 @@ export class BridgeServer {
       { retryReads: false },
     )
     this.lastConnection = null
+    // Terminal: no reconnect can ever flush the outbox again.
+    this.revokeOutbox.clear()
   }
 
   /** Handle one authenticated inbound frame from the live connection. */

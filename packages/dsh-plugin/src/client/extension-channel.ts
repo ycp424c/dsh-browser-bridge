@@ -111,6 +111,13 @@ export class ExtensionChannel {
       }
       const onAbort = () => {
         finish()
+        // A grant.create abort must revoke the offer the background may
+        // already have sent: notify it with a minimal cancel message so the
+        // grant, its CDP binding, and the host offer die immediately instead
+        // of lingering until the TTL.
+        if (type === 'grant.create') {
+          this.env.postToParent({ type: 'grant.cancel', requestId }, this.extensionOrigin)
+        }
         reject(bridgeError('bridge_disconnected', 'request cancelled', false))
       }
       const timer = setTimeout(() => {

@@ -82,12 +82,13 @@ async function proposeStep(
   agent: Agent,
   message: UserMessage,
   turn: number,
+  signal: AbortSignal = new AbortController().signal,
 ): Promise<PreStepDecision> {
   agent.inbox.append('next-turn', message)
   const claimed = agent.inbox.claim('next-turn', turn)
   return agentEvents(ctx, agent).waterfall(
     'agent/pre-step',
-    { messages: claimed, turn, step: 1, signal: new AbortController().signal },
+    { messages: claimed, turn, step: 1, signal },
     () => Promise.resolve<PreStepDecision>({ kind: 'enter', messages: claimed }),
   )
 }
@@ -266,6 +267,79 @@ describe('pre-step marker consumption', () => {
     expect(text).not.toContain('page_2')
   })
 
+  it('steering is atomic: one invalid marker rejects the step without consuming the valid handle or changing pages', async () => {
+    const fixture = await makeFixture()
+    const { ctx, agent, connectionId, offer, grants } = fixture
+    const h1 = offer(connectionId, 'session-a', TAB)
+    const h2 = offer(connectionId, 'session-a', TAB2, 'g-steer-atomic')
+    await proposeStep(ctx, agent, userMessage(`verify ${encodeMarker(h1)}`), 1)
+    // Steering adds page_2 AND a bogus marker in ONE step: the whole step
+    // must be rejected atomically — the valid handle is NOT consumed and
+    // the current pages array is NOT extended.
+    const decision = await proposeStep(
+      ctx,
+      agent,
+      userMessage(`also ${encodeMarker(h2)} and ${encodeMarker('x'.repeat(32))}`),
+      1,
+    )
+    expect(decision.kind).toBe('reject')
+    // The valid handle was NOT consumed by the failed step: it remains
+    // consumable for a DIFFERENT turn (a consumed handle would reject).
+    expect(() => grants.consume(h2, { connectionId, sessionId: 'session-a', turn: 2 })).not.toThrow()
+    // page_2 is NOT resolvable through the already-registered tool closures.
+    const observe = agent.ctx.tools.get('browser_observe', agent)!
+    await expect(observe.execute(
+      { page: 'page_2' },
+      {
+        callId: 'c-atomic' as never,
+        name: 'browser_observe',
+        arguments: { page: 'page_2' },
+        signal: new AbortController().signal,
+        agent,
+      } as never,
+    )).rejects.toThrow(/unknown page page_2/)
+  })
+
+  it('a retry with only the valid marker succeeds and reaches page_2', async () => {
+    const fixture = await makeFixture()
+    const { ctx, agent, connectionId, offer, socket } = fixture
+    const h1 = offer(connectionId, 'session-a', TAB)
+    const h2 = offer(connectionId, 'session-a', TAB2, 'g-steer-retry')
+    await proposeStep(ctx, agent, userMessage(`verify ${encodeMarker(h1)}`), 1)
+    await proposeStep(ctx, agent, userMessage(`bad ${encodeMarker(h2)} ${encodeMarker('y'.repeat(32))}`), 1)
+    // The same valid handle alone steers successfully now.
+    const retry = await proposeStep(ctx, agent, userMessage(`also ${encodeMarker(h2)}`), 1)
+    expect(retry.kind).toBe('enter')
+    expect(textOf(retry)).toContain('id="page_2"')
+    const observe = agent.ctx.tools.get('browser_observe', agent)!
+    const pending = observe.execute(
+      { page: 'page_2' },
+      {
+        callId: 'c-retry' as never,
+        name: 'browser_observe',
+        arguments: { page: 'page_2' },
+        signal: new AbortController().signal,
+        agent,
+      } as never,
+    )
+    await vi.waitFor(() => {
+      const calls = socket.sent
+        .map(text => JSON.parse(text) as { type?: string; grantId?: string })
+        .filter(frame => frame.type === 'tool.call')
+      expect(calls).toContainEqual(expect.objectContaining({ grantId: 'g-steer-retry', operation: 'observe' }))
+    })
+    const call = socket.sent
+      .map(text => JSON.parse(text) as { type?: string; requestId?: string })
+      .find(frame => frame.type === 'tool.call') as { requestId: string }
+    socket.receive(JSON.stringify({
+      v: 1,
+      type: 'tool.result',
+      requestId: call.requestId,
+      result: { ok: true, value: { page: { url: TAB2.url } } },
+    }))
+    await expect(pending).resolves.toMatchObject({ page: { url: TAB2.url } })
+  })
+
   it('treats a dropped socket as transient: tools survive and a same-origin reconnect resumes the turn', async () => {
     const fixture = await makeFixture()
     const { ctx, agent, server, pairing, connectionId, offer, grants } = fixture
@@ -337,5 +411,62 @@ describe('pre-step marker consumption', () => {
     expect(text).toContain('http://127.0.0.1:4173/path')
     expect(text).not.toContain('secret=1')
     expect(text).not.toContain('#frag')
+  })
+
+  describe('turn signal abort cleanup', () => {
+    it('aborting the turn signal removes the tools and revokes the grants', async () => {
+      const fixture = await makeFixture()
+      const { ctx, agent, connectionId, offer, grants, socket } = fixture
+      const handle = offer(connectionId, 'session-a', TAB, 'g-abort')
+      const controller = new AbortController()
+      const decision = await proposeStep(ctx, agent, userMessage(`verify ${encodeMarker(handle)}`), 1, controller.signal)
+      expect(decision.kind).toBe('enter')
+      expect(agent.ctx.tools.get('browser_observe', agent)).toBeDefined()
+      // DSH fires `agent/turn-stopping` only on the NORMAL completion path;
+      // a cancelled turn aborts the shared signal instead. The pre-step must
+      // clean the tools and revoke the grants on that abort.
+      controller.abort()
+      expect(agent.ctx.tools.get('browser_observe', agent)).toBeUndefined()
+      expect(agent.ctx.tools.get('browser_act', agent)).toBeUndefined()
+      expect(() => grants.resolve(GrantId('g-abort'), connectionId)).toThrow(/grant/)
+      const revokes = socket.sent
+        .map(text => JSON.parse(text) as { type?: string; grantId?: string })
+        .filter(frame => frame.type === 'grant.revoke')
+      expect(revokes).toContainEqual(expect.objectContaining({ grantId: 'g-abort' }))
+    })
+
+    it('an aborted turn does not affect a later turn', async () => {
+      const fixture = await makeFixture()
+      const { ctx, agent, connectionId, offer, grants } = fixture
+      const controller = new AbortController()
+      const h1 = offer(connectionId, 'session-a', TAB, 'g-abort-before')
+      await proposeStep(ctx, agent, userMessage(`verify ${encodeMarker(h1)}`), 1, controller.signal)
+      controller.abort()
+      expect(agent.ctx.tools.get('browser_observe', agent)).toBeUndefined()
+      // A later turn with a FRESH signal attaches and registers tools again.
+      const h2 = offer(connectionId, 'session-a', TAB2, 'g-after-abort')
+      const second = await proposeStep(ctx, agent, userMessage(`check ${encodeMarker(h2)}`), 2)
+      expect(second.kind).toBe('enter')
+      expect(textOf(second)).toContain('id="page_1"')
+      expect(agent.ctx.tools.get('browser_observe', agent)).toBeDefined()
+      expect(grants.resolve(GrantId('g-after-abort'), connectionId)).toBeDefined()
+    })
+
+    it('turn-stopping removes the abort listener (single cleanup, single revoke)', async () => {
+      const fixture = await makeFixture()
+      const { ctx, agent, connectionId, offer, socket } = fixture
+      const controller = new AbortController()
+      const handle = offer(connectionId, 'session-a', TAB, 'g-stopping')
+      await proposeStep(ctx, agent, userMessage(`verify ${encodeMarker(handle)}`), 1, controller.signal)
+      // Normal turn end: turn-stopping cleans up and must detach the abort
+      // listener so a later abort of the same signal cannot re-run cleanup.
+      await fireTurnStopping(ctx, agent, 1)
+      expect(agent.ctx.tools.get('browser_observe', agent)).toBeUndefined()
+      controller.abort()
+      const revokes = socket.sent
+        .map(text => JSON.parse(text) as { type?: string; grantId?: string })
+        .filter(frame => frame.type === 'grant.revoke' && frame.grantId === 'g-stopping')
+      expect(revokes).toHaveLength(1)
+    })
   })
 })

@@ -23,6 +23,7 @@ export type PanelRequest =
   | { type: 'tabs.current'; requestId: string }
   | { type: 'tabs.list'; requestId: string }
   | { type: 'grant.create'; requestId: string; sessionId: string; tab: TabDescriptor }
+  | { type: 'grant.cancel'; requestId: string }
 
 export interface PanelReply {
   type: 'panel.reply'
@@ -54,8 +55,16 @@ export type ToolExecutor = (
   args: JsonValue,
 ) => Promise<JsonValue>
 
+/** How one pending grant offer settled. */
+type GrantAckResult =
+  | { kind: 'accepted'; handle: string }
+  /** Explicitly cancelled (iframe abort, panel loss, session change). */
+  | { kind: 'cancelled' }
+  /** Timed out or rejected by the host. */
+  | { kind: 'failed' }
+
 interface PendingGrant {
-  resolve(handle: string): void
+  resolve(result: GrantAckResult): void
   timer: ReturnType<typeof setTimeout>
 }
 
@@ -92,6 +101,8 @@ export class BridgeRouter {
   private readonly grantAckTimeoutMs: number
   private readonly startupReady: Promise<void>
   private readonly pendingGrants = new Map<string, PendingGrant>()
+  /** Panel request id -> grant id of an in-flight grant.create. */
+  private readonly pendingGrantRequests = new Map<string, GrantId>()
   /** Execution journal: requestId -> in-flight execution (dedupes duplicates). */
   private readonly inFlight = new Map<string, Promise<JsonValue>>()
   /** Settled read results kept briefly to answer exact duplicate request ids. */
@@ -108,10 +119,12 @@ export class BridgeRouter {
     this.startupReady = deps.startupReady ?? Promise.resolve()
     deps.bridge.onFrame(frame => this.onBridgeFrame(frame))
     // A new logical session (host restart or takeover) invalidates every
-    // grant of the previous one: revoke locally and release all CDP
-    // sessions so no orphaned permission survives. The new host has no
-    // records for those grants, so there is nothing to notify.
+    // grant of the previous one: settle every pending offer, revoke locally,
+    // and release all CDP sessions so no orphaned permission survives. The
+    // new host has no records for those grants, so there is nothing to
+    // notify.
     deps.bridge.onSessionChanged(() => {
+      this.settleAllPendingGrants({ kind: 'cancelled' })
       this.vault.revokeAll()
       this.sessionManager.revokeAll()
     })
@@ -124,8 +137,11 @@ export class BridgeRouter {
     })
     port.onDisconnect.addListener(() => {
       // The bridge is panel-scoped: when the panel goes away, stop the
-      // connection and drop every grant and CDP session it owned. The host
-      // is notified first so its grant records die with the session.
+      // connection and drop every grant and CDP session it owned. Pending
+      // grant offers are settled IMMEDIATELY (no acknowledgement timer
+      // leak), the host is notified first so its grant records die with the
+      // session, and no reply is sent to the disconnected port.
+      this.settleAllPendingGrants({ kind: 'cancelled' })
       const revoked = this.vault.revokeAll()
       for (const grantId of revoked) {
         try {
@@ -179,8 +195,36 @@ export class BridgeRouter {
         await this.createGrant(port, request)
         return
       }
+      case 'grant.cancel': {
+        // The iframe aborted a grant.create request: revoke the local grant,
+        // its CDP binding, and the host grant (if already offered) RIGHT
+        // NOW, and settle the acknowledgement timer. A late grant.accepted
+        // must never rebind the grant.
+        const grantId = this.pendingGrantRequests.get(request.requestId)
+        if (grantId !== undefined) {
+          this.pendingGrantRequests.delete(request.requestId)
+          this.settlePendingGrant(grantId, { kind: 'cancelled' })
+          this.revokeGrantAndNotify(grantId)
+        }
+        return
+      }
       default:
         return
+    }
+  }
+
+  /**
+   * Revoke one grant everywhere (vault, CDP binding) and notify the host.
+   * Used by the explicit grant.cancel path; the host drops the grant even
+   * when it never saw the offer.
+   */
+  private revokeGrantAndNotify(grantId: GrantId): void {
+    this.vault.revoke(grantId)
+    this.sessionManager.revoke(grantId)
+    try {
+      this.bridge.send({ v: PROTOCOL_VERSION, type: 'grant.revoke', grantId })
+    } catch {
+      // The bridge may be down; the host drops its grants on its own paths.
     }
   }
 
@@ -198,6 +242,7 @@ export class BridgeRouter {
       return
     }
     const grant = this.vault.create({ sessionId: request.sessionId, tab: reRead })
+    this.pendingGrantRequests.set(request.requestId, grant.grantId)
     try {
       this.bridge.send({
         v: PROTOCOL_VERSION,
@@ -208,35 +253,67 @@ export class BridgeRouter {
         expiresAt: grant.expiresAt,
       })
     } catch {
+      this.pendingGrantRequests.delete(request.requestId)
       this.vault.revoke(grant.grantId)
       this.reply(port, request.requestId, bridgeError('bridge_disconnected', 'browser extension is not connected', true))
       return
     }
-    const handle = await this.waitForAccepted(grant.grantId)
-    if (handle === null) {
+    const result = await this.waitForAccepted(grant.grantId)
+    if (result.kind === 'cancelled') {
+      // Explicit abort (iframe cancel, panel loss, session change): the
+      // revocation already happened and no reply is owed to a settled or
+      // dead request.
+      return
+    }
+    if (result.kind === 'failed') {
+      this.pendingGrantRequests.delete(request.requestId)
       this.vault.revoke(grant.grantId)
       this.reply(port, request.requestId, bridgeError('grant_expired', 'grant acknowledgement timed out', false))
       return
     }
+    this.pendingGrantRequests.delete(request.requestId)
     // The iframe receives ONLY the non-secret handle.
-    this.reply(port, request.requestId, { handle })
+    this.reply(port, request.requestId, { handle: result.handle })
   }
 
-  private waitForAccepted(grantId: GrantId): Promise<string | null> {
+  private waitForAccepted(grantId: GrantId): Promise<GrantAckResult> {
     return new Promise(resolve => {
       const timer = setTimeout(() => {
         this.pendingGrants.delete(grantId)
-        resolve(null)
+        resolve({ kind: 'failed' })
       }, this.grantAckTimeoutMs)
       this.pendingGrants.set(grantId, {
-        resolve: handle => {
+        resolve: result => {
           clearTimeout(timer)
           this.pendingGrants.delete(grantId)
-          resolve(handle)
+          resolve(result)
         },
         timer,
       })
     })
+  }
+
+  /** Settle ONE pending grant offer and drop its request correlation. */
+  private settlePendingGrant(grantId: GrantId, result: GrantAckResult): void {
+    const pending = this.pendingGrants.get(grantId)
+    if (pending !== undefined) {
+      clearTimeout(pending.timer)
+      this.pendingGrants.delete(grantId)
+      pending.resolve(result)
+    }
+    for (const [requestId, id] of [...this.pendingGrantRequests]) {
+      if (id === grantId) this.pendingGrantRequests.delete(requestId)
+    }
+  }
+
+  /** Settle EVERY pending grant offer (panel loss, session change). */
+  private settleAllPendingGrants(result: GrantAckResult): void {
+    for (const [grantId, pending] of [...this.pendingGrants]) {
+      clearTimeout(pending.timer)
+      this.pendingGrants.delete(grantId)
+      pending.resolve(result)
+    }
+    this.pendingGrantRequests.clear()
   }
 
   private onBridgeFrame(frame: BridgeFrame): void {
@@ -253,7 +330,7 @@ export class BridgeRouter {
       // navigation can already be classified cross-origin.
       const grant = this.vault.resolve(frame.grantId)
       this.sessionManager.bind({ grantId: frame.grantId, tabId: grant.tab.tabId, url: grant.tab.url })
-      pending.resolve(frame.handle)
+      pending.resolve({ kind: 'accepted', handle: frame.handle })
       return
     }
     if (frame.type === 'tool.call') {
@@ -263,11 +340,9 @@ export class BridgeRouter {
     if (frame.type === 'error') {
       // The host rejected something; fail every pending grant offer so the
       // local grants cannot outlive their acknowledgements.
-      for (const [grantId, pending] of [...this.pendingGrants]) {
-        this.vault.revoke(grantId as GrantId)
-        clearTimeout(pending.timer)
-        this.pendingGrants.delete(grantId)
-        pending.resolve('')
+      for (const grantId of [...this.pendingGrants.keys()] as GrantId[]) {
+        this.settlePendingGrant(grantId, { kind: 'failed' })
+        this.vault.revoke(grantId)
       }
       return
     }

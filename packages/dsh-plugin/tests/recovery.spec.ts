@@ -210,4 +210,87 @@ describe('bridge recovery', () => {
     const ok = secondSocket.sentOf('hello.ok') as { connectionId: string }
     expect(ok.connectionId).not.toBe(connectionId)
   })
+
+  it('queues turn revocations during a disconnect and flushes them before work resumes on a same-origin reconnect', async () => {
+    const fixture = await makeFixture()
+    const { server, pairing, grants, connectionId, grantId, socket: firstSocket } = fixture
+    // The turn consumed the grant (pre-step), so turn cleanup owns it.
+    const record = grants.resolve(grantId, connectionId)
+    grants.consume(record.handle, { connectionId, sessionId: 'session-a', turn: 1 })
+    // Attach the CDP session: the extension is active on this grant.
+    const pending = server.request(grantId, 'observe', {}, new AbortController().signal)
+    firstSocket.receive(toolAcceptedFor((firstSocket.sentOf('tool.call') as ToolCallFrame).requestId))
+    // The socket drops TRANSIENTLY: the logical session survives, but the
+    // extension can no longer receive frames.
+    firstSocket.close()
+    // The turn stops while disconnected: the grant is revoked locally and
+    // must be delivered once the same extension reconnects.
+    expect(server.revokeTurn(connectionId, 'session-a', 1)).toEqual([grantId])
+    expect(grants.revokeConnection(fixture.connectionId)).toEqual([])
+    // The in-flight read was cancelled by the turn cleanup.
+    await expect(pending).rejects.toMatchObject({ code: 'grant_expired' })
+    // A same-origin reconnect with a fresh nonce resumes the SAME session.
+    const secondSocket = new FakeSocket()
+    server.attach(secondSocket, EXT_A)
+    const nonce = pairing.issue(EXT_A)
+    secondSocket.receive(JSON.stringify({ v: PROTOCOL_VERSION, type: 'hello', pairingNonce: nonce }))
+    const ok = secondSocket.sentOf('hello.ok') as { connectionId: string }
+    expect(ok.connectionId).toBe(fixture.connectionId)
+    // The queued grant.revoke is flushed BEFORE any retried or new work:
+    // the extension must drop the grant and detach CDP before it can serve
+    // another tool call.
+    const frames = secondSocket.frames()
+    const revokeIndex = frames.findIndex(frame => frame.type === 'grant.revoke')
+    expect(revokeIndex).toBeGreaterThanOrEqual(0)
+    expect(frames[revokeIndex]).toMatchObject({ grantId })
+    const toolIndex = frames.findIndex(frame => frame.type === 'tool.call')
+    if (toolIndex >= 0) expect(revokeIndex).toBeLessThan(toolIndex)
+  })
+
+  it('revokeTurn rejects pending calls of the revoked grants immediately and never replays them', async () => {
+    const fixture = await makeFixture()
+    const { server, grants, connectionId, grantId, socket: firstSocket } = fixture
+    const record = grants.resolve(grantId, connectionId)
+    grants.consume(record.handle, { connectionId, sessionId: 'session-a', turn: 1 })
+    const pending = server.request(grantId, 'observe', {}, new AbortController().signal)
+    firstSocket.receive(toolAcceptedFor((firstSocket.sentOf('tool.call') as ToolCallFrame).requestId))
+    // The socket drops and the read retry window is armed...
+    firstSocket.close()
+    // ...but the turn ends before any reconnect: the pending read must be
+    // cancelled NOW, not retried against the resumed session.
+    server.revokeTurn(connectionId, 'session-a', 1)
+    await expect(pending).rejects.toMatchObject({ code: 'grant_expired' })
+    // A same-origin reconnect retries NOTHING: no replay of the cancelled
+    // read (and never a replay of a write).
+    const secondSocket = new FakeSocket()
+    server.acceptAuthenticated(secondSocket, fixture.connectionId as never)
+    expect(secondSocket.frames().filter(frame => frame.type === 'tool.call')).toHaveLength(0)
+  })
+
+  it('a foreign takeover still fails closed when turn revocations were queued', async () => {
+    const fixture = await makeFixture()
+    const { server, pairing, grants, connectionId, grantId, socket: firstSocket } = fixture
+    const record = grants.resolve(grantId, connectionId)
+    grants.consume(record.handle, { connectionId, sessionId: 'session-a', turn: 1 })
+    firstSocket.close()
+    server.revokeTurn(connectionId, 'session-a', 1)
+    expect(grants.revokeConnection(fixture.connectionId)).toEqual([])
+    // EXT_B takes the session over: it must NEVER receive the old session's
+    // queued revocations or work (it is a different logical session).
+    const secondSocket = new FakeSocket()
+    server.attach(secondSocket, EXT_B)
+    const nonce = pairing.issue(EXT_B)
+    secondSocket.receive(JSON.stringify({ v: PROTOCOL_VERSION, type: 'hello', pairingNonce: nonce }))
+    expect(secondSocket.frames().filter(frame => frame.type === 'grant.revoke')).toHaveLength(0)
+    expect(secondSocket.frames().filter(frame => frame.type === 'tool.call')).toHaveLength(0)
+    // The old extension cannot resume the old id either: its reconnect gets
+    // a fresh logical session (its sessionChanged revokes locally).
+    const thirdSocket = new FakeSocket()
+    server.attach(thirdSocket, EXT_A)
+    const nonceA = pairing.issue(EXT_A)
+    thirdSocket.receive(JSON.stringify({ v: PROTOCOL_VERSION, type: 'hello', pairingNonce: nonceA }))
+    const ok = thirdSocket.sentOf('hello.ok') as { connectionId: string }
+    expect(ok.connectionId).not.toBe(connectionId)
+    expect(thirdSocket.frames().filter(frame => frame.type === 'grant.revoke')).toHaveLength(0)
+  })
 })

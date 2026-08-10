@@ -6,7 +6,7 @@
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { createUserMessage, type UserMessage } from '@deepseek-ai/dsh-llm'
 import { extractMarkers, type TabDescriptor } from '@dsh-external/dsh-browser-bridge-protocol'
-import { GrantStore } from './bridge/grant-store.ts'
+import { GrantStore, type GrantRecord } from './bridge/grant-store.ts'
 import { BridgeServer } from './bridge/server.ts'
 import type { ActiveTurn } from './tools/register.ts'
 
@@ -113,6 +113,10 @@ export function createPreStepHandler(deps: PreStepHandlerDeps): PreStepHandler {
     const current = active.get(agent)
     if (current === undefined || current.turn !== turn) return
     active.delete(agent)
+    // Detach the abort listener first so a later abort of the same turn
+    // signal (for example a cancel inside the stopping window) cannot run
+    // cleanup twice.
+    current.removeAbortListener()
     // Remove tool registrations first, then revoke extension grants.
     for (const dispose of current.disposers) {
       try {
@@ -152,18 +156,25 @@ export function createPreStepHandler(deps: PreStepHandlerDeps): PreStepHandler {
     const summaries = new Map<string, string>()
     const aliasByGrantId = new Map(pages.map(page => [page.grantId, page.alias]))
 
-    for (const { marker, handle } of markers) {
-      let record
-      try {
-        record = deps.grants.consume(handle, {
-          connectionId: connectionId ?? '',
-          sessionId,
-          turn,
-        })
-      } catch {
-        // Unknown, expired, foreign, or already-used handle: reject the step.
-        return { kind: 'reject' }
-      }
+    // ATOMIC marker consumption: every handle is validated before ANY record
+    // is committed, so a single unknown/expired/foreign marker rejects the
+    // whole step without consuming the valid handles or extending the active
+    // turn's pages. Only after the full batch succeeded do we append pages
+    // and build summaries.
+    let records: GrantRecord[]
+    try {
+      records = deps.grants.consumeBatch(markers.map(marker => marker.handle), {
+        connectionId: connectionId ?? '',
+        sessionId,
+        turn,
+      })
+    } catch {
+      // Unknown, expired, foreign, or already-used handle: reject the step.
+      return { kind: 'reject' }
+    }
+    for (let index = 0; index < markers.length; index += 1) {
+      const marker = markers[index]!.marker
+      const record = records[index]!
       let alias = aliasByGrantId.get(record.grantId)
       if (alias === undefined) {
         alias = `page_${pages.length + 1}`
@@ -181,6 +192,7 @@ export function createPreStepHandler(deps: PreStepHandlerDeps): PreStepHandler {
         turn,
         pages,
         disposers: [],
+        removeAbortListener: () => {},
       }
       try {
         turnState.disposers = deps.registerTurnTools(payload.agent, turnState)
@@ -191,6 +203,14 @@ export function createPreStepHandler(deps: PreStepHandlerDeps): PreStepHandler {
         active.delete(payload.agent)
         throw error
       }
+      // DSH dispatches `agent/turn-stopping` ONLY on the normal completion
+      // path; a cancelled turn aborts the shared phase signal instead. The
+      // once-abort listener guarantees the tools and grants are cleaned on
+      // that path too, and is removed by every other cleanup path.
+      const signal = payload.signal
+      const onAbort = (): void => cleanup(payload.agent, turn)
+      signal.addEventListener('abort', onAbort, { once: true })
+      turnState.removeAbortListener = () => signal.removeEventListener('abort', onAbort)
       active.set(payload.agent, turnState)
     }
 

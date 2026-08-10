@@ -48,6 +48,10 @@ class FakeBridge {
     for (const handler of this.frameHandlers) handler(frame)
   }
 
+  sessionChanged(): void {
+    for (const handler of this.sessionChangedHandlers) handler()
+  }
+
   sentOf<T extends BridgeFrame['type']>(type: T): Extract<BridgeFrame, { type: T }> | undefined {
     return this.sent.find(frame => frame.type === type) as Extract<BridgeFrame, { type: T }> | undefined
   }
@@ -56,6 +60,7 @@ class FakeBridge {
 class FakePort {
   readonly messages: unknown[] = []
   private messageHandlers = new Set<(message: unknown) => void>()
+  private disconnectHandlers = new Set<() => void>()
   private readonly port: chrome.runtime.Port
 
   constructor() {
@@ -68,7 +73,12 @@ class FakePort {
         hasListener: (handler: (message: unknown) => void) => self.messageHandlers.has(handler),
         hasListeners: () => self.messageHandlers.size > 0,
       },
-      onDisconnect: { addListener: () => {}, removeListener: () => {}, hasListener: () => false, hasListeners: () => false },
+      onDisconnect: {
+        addListener: (handler: () => void) => { self.disconnectHandlers.add(handler) },
+        removeListener: (handler: () => void) => { self.disconnectHandlers.delete(handler) },
+        hasListener: (handler: () => void) => self.disconnectHandlers.has(handler),
+        hasListeners: () => self.disconnectHandlers.size > 0,
+      },
       postMessage: (message: unknown) => { self.messages.push(message) },
       disconnect: () => {},
     } as unknown as chrome.runtime.Port
@@ -80,6 +90,11 @@ class FakePort {
 
   receive(message: unknown): void {
     for (const handler of this.messageHandlers) handler(message)
+  }
+
+  /** Fire the port's disconnect listeners (terminal panel loss). */
+  disconnect(): void {
+    for (const handler of this.disconnectHandlers) handler()
   }
 
   replies(): PanelReply[] {
@@ -440,6 +455,79 @@ describe('bridge router', () => {
     bridge.receive({ v: PROTOCOL_VERSION, type: 'grant.revoke', grantId: put.grantId })
     await vi.waitFor(() => {
       expect(debuggerApi.detach).toHaveBeenCalledWith({ tabId: 9 }, expect.any(Function))
+    })
+  })
+
+  describe('pending grant offer lifecycle', () => {
+    /** Issue one grant.create and wait for its grant.put offer. */
+    async function offer(router: BridgeRouter, bridge: FakeBridge, port: FakePort): Promise<GrantPutFrame> {
+      port.receive({ type: 'grant.create', requestId: 'r1', sessionId: 's1', tab: { ...TAB } })
+      await vi.waitFor(() => {
+        expect(bridge.sentOf('grant.put')).toBeDefined()
+      })
+      return bridge.sentOf('grant.put') as GrantPutFrame
+    }
+
+    it('grant.cancel revokes the local and host grants immediately and a late grant.accepted does not rebind', async () => {
+      const { router, bridge, vault } = makeRouter()
+      const port = new FakePort()
+      router.connectPanel(port.raw)
+      const put = await offer(router, bridge, port)
+      // The iframe aborted the grant.create request (channel abort): the
+      // router must revoke the local grant, notify the host, and settle the
+      // acknowledgement timer without waiting for the 10-second timeout.
+      port.receive({ type: 'grant.cancel', requestId: 'r1' })
+      await vi.waitFor(() => {
+        expect(vault.owned()).toEqual([])
+      })
+      expect(bridge.sentOf('grant.revoke')).toMatchObject({ grantId: put.grantId })
+      // No reply to a settled request.
+      expect(port.replies()).toHaveLength(0)
+      // A late grant.accepted must NOT rebind the grant.
+      bridge.receive({
+        v: PROTOCOL_VERSION,
+        type: 'grant.accepted',
+        grantId: put.grantId,
+        handle: GrantHandle('h'.repeat(32)),
+      })
+      expect(vault.owned()).toEqual([])
+      expect(() => vault.resolve(put.grantId)).toThrow(/grant expired/)
+    })
+
+    it('panel disconnect settles pending acknowledgements immediately and a late accepted does not rebind', async () => {
+      const { router, bridge, vault } = makeRouter()
+      const port = new FakePort()
+      router.connectPanel(port.raw)
+      const put = await offer(router, bridge, port)
+      port.disconnect()
+      expect(vault.owned()).toEqual([])
+      expect(bridge.sentOf('grant.revoke')).toMatchObject({ grantId: put.grantId })
+      // A late acknowledgement after the panel closed must be ignored
+      // without rebinding the grant or throwing.
+      bridge.receive({
+        v: PROTOCOL_VERSION,
+        type: 'grant.accepted',
+        grantId: put.grantId,
+        handle: GrantHandle('h'.repeat(32)),
+      })
+      expect(vault.owned()).toEqual([])
+    })
+
+    it('session change settles pending acknowledgements immediately and a late accepted does not rebind', async () => {
+      const { router, bridge, vault } = makeRouter()
+      const port = new FakePort()
+      router.connectPanel(port.raw)
+      const put = await offer(router, bridge, port)
+      bridge.sessionChanged()
+      expect(vault.owned()).toEqual([])
+      bridge.receive({
+        v: PROTOCOL_VERSION,
+        type: 'grant.accepted',
+        grantId: put.grantId,
+        handle: GrantHandle('h'.repeat(32)),
+      })
+      expect(vault.owned()).toEqual([])
+      expect(() => vault.resolve(put.grantId)).toThrow(/grant expired/)
     })
   })
 })

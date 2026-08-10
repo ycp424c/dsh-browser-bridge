@@ -73,6 +73,27 @@ export class GrantStore {
    * turn) combination fails closed.
    */
   consume(handle: string, context: ConsumeContext): GrantRecord {
+    const record = this.validate(handle, context)
+    record.turn = context.turn
+    return record
+  }
+
+  /**
+   * Atomically consume MANY handles for one turn: every handle is validated
+   * BEFORE any record is committed, so a single invalid, foreign, or expired
+   * handle rejects the whole batch without consuming any valid handle.
+   * Repeat handles (the same marker twice) are validated twice and committed
+   * idempotently. Same-turn steering uses this so a rejected step never
+   * half-consumes its markers or changes the active turn's pages.
+   */
+  consumeBatch(handles: readonly string[], context: ConsumeContext): GrantRecord[] {
+    const records = handles.map(handle => this.validate(handle, context))
+    for (const record of records) record.turn = context.turn
+    return records
+  }
+
+  /** Validate one handle for a context WITHOUT mutating the record. */
+  private validate(handle: string, context: ConsumeContext): GrantRecord {
     const record = this.byHandle.get(handle)
     if (record === undefined) {
       throw bridgeError('permission_denied', 'grant: unknown handle', false)
@@ -89,7 +110,6 @@ export class GrantStore {
     if (this.now() > record.expiresAt) {
       throw bridgeError('grant_expired', 'grant: grant expired', false)
     }
-    record.turn = context.turn
     return record
   }
 

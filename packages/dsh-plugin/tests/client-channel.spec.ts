@@ -139,6 +139,31 @@ describe('extension channel', () => {
     expect(sent[0]).toMatchObject({ message: { type: 'bridge.client-ready' }, target: EXT })
   })
 
+  it('posts grant.cancel to the parent when a grant.create request aborts', async () => {
+    const { env, sent } = makeEnv()
+    const channel = new ExtensionChannel(env)
+    const controller = new AbortController()
+    const pending = channel.request('grant.create', { sessionId: 's1', tab: { tabId: 7 } }, controller.signal)
+    controller.abort()
+    await expect(pending).rejects.toMatchObject({ code: 'bridge_disconnected' })
+    // The background must learn about the abort so it revokes the grant
+    // offer it may already have sent; otherwise the offer lingers for TTL.
+    expect(sent).toHaveLength(2)
+    const request = sent[0]!.message as { type: string; requestId: string }
+    expect(sent[1]!.message).toEqual({ type: 'grant.cancel', requestId: request.requestId })
+    expect(sent[1]!.target).toBe(EXT)
+  })
+
+  it('does not post grant.cancel for non-grant requests', async () => {
+    const { env, sent } = makeEnv()
+    const channel = new ExtensionChannel(env)
+    const controller = new AbortController()
+    const pending = channel.request('tabs.list', {}, controller.signal)
+    controller.abort()
+    await expect(pending).rejects.toMatchObject({ code: 'bridge_disconnected' })
+    expect(sent).toHaveLength(1)
+  })
+
   it('dispose removes the window listener and rejects pending and new requests', async () => {
     const { env, sent, deliver } = makeEnv()
     const channel = new ExtensionChannel(env)

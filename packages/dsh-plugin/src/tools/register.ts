@@ -13,6 +13,8 @@ export interface ActiveTurn {
   turn: number
   pages: PageAlias[]
   disposers: Array<() => void>
+  /** Detach the once-abort cleanup listener (every cleanup path removes it). */
+  removeAbortListener: () => void
 }
 
 export interface RegisterTurnToolsDeps {

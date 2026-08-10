@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
-  GrantHandle, GrantId, PROTOCOL_VERSION, type BridgeFrame, type GrantPutFrame,
-  type TabDescriptor, type ToolAcceptedFrame,
+  ConnectionId, GrantHandle, GrantId, PROTOCOL_VERSION, type BridgeFrame,
+  type GrantPutFrame, type TabDescriptor, type ToolAcceptedFrame,
 } from '@dsh-external/dsh-browser-bridge-protocol'
 import { BridgeRouter, type ToolExecutor } from '../src/bridge/router.ts'
+import { BridgeClient as RealBridgeClient, type BridgeSocket } from '../src/bridge/client.ts'
 import type { BridgeClient } from '../src/bridge/client.ts'
 import type { TabCatalog } from '../src/tabs/catalog.ts'
 import { GrantVault } from '../src/grants/vault.ts'
@@ -306,4 +307,90 @@ describe('extension recovery', () => {
       expect(debuggerApi.detach).toHaveBeenCalled()
     })
   })
+
+  it('delivers a queued turn revocation over a same-origin reconnect and detaches CDP', async () => {
+    // REAL two-sided contract: the BridgeClient keeps the same connection id
+    // across a transient drop (no session-changed), so the host's queued
+    // grant.revoke is the ONLY thing that tears the grant and CDP down.
+    let socket = new RealSocket()
+    const client = new RealBridgeClient({ createSocket: () => socket, heartbeatMs: 20_000 })
+    const vault = new GrantVault()
+    const debuggerApi = new FakeDebuggerApi()
+    const manager = new CdpSessionManager({ debuggerApi: new ChromeDebugger(debuggerApi as never, { lastError: () => undefined }) })
+    const router = new BridgeRouter({
+      bridge: client as unknown as BridgeClient,
+      vault,
+      catalog: {
+        byId: async (tabId: number): Promise<TabDescriptor | undefined> => (tabId === TAB.tabId ? { ...TAB } : undefined),
+        current: async (): Promise<TabDescriptor> => ({ ...TAB }),
+        list: async (): Promise<TabDescriptor[]> => [{ ...TAB }],
+      } as unknown as TabCatalog,
+      sessionManager: manager,
+      toolExecutor: async () => ({ ok: true }),
+    })
+    let changed = 0
+    client.onSessionChanged(() => { changed += 1 })
+    client.connect('ws://x', 'nonce-one')
+    socket.open()
+    socket.receive(JSON.stringify({ v: PROTOCOL_VERSION, type: 'hello.ok', connectionId: ConnectionId('c1') }))
+
+    // Issue and accept one grant through the real frames.
+    const port = new FakePort()
+    router.connectPanel(port.raw)
+    port.receive({ type: 'grant.create', requestId: 'r1', sessionId: 's1', tab: { ...TAB } })
+    await vi.waitFor(() => {
+      expect(socket.sentFrames().some(frame => frame.type === 'grant.put')).toBe(true)
+    })
+    const put = socket.sentFrames().find(frame => frame.type === 'grant.put') as GrantPutFrame
+    socket.receive(JSON.stringify({ v: PROTOCOL_VERSION, type: 'grant.accepted', grantId: put.grantId, handle: GrantHandle('h'.repeat(32)) }))
+    await vi.waitFor(() => {
+      expect(vault.owned()).toHaveLength(1)
+    })
+
+    // CDP is active on the grant.
+    socket.receive(JSON.stringify({ v: PROTOCOL_VERSION, type: 'tool.call', requestId: 't1', grantId: put.grantId, operation: 'observe', args: {} }))
+    await vi.waitFor(() => {
+      expect(debuggerApi.attach).toHaveBeenCalled()
+    })
+
+    // The socket drops transiently; the turn ends on the host while it is
+    // down and the host queues grant.revoke for this same logical session.
+    socket.close()
+    expect(client.state).toBe('reconnecting')
+    // A same-origin reconnect with a FRESH nonce resumes the SAME session:
+    // the client must NOT treat it as a session change.
+    socket = new RealSocket()
+    client.connect('ws://x', 'nonce-two')
+    socket.open()
+    socket.receive(JSON.stringify({ v: PROTOCOL_VERSION, type: 'hello.ok', connectionId: ConnectionId('c1') }))
+    expect(changed).toBe(0)
+    // The flushed revocation arrives and tears the grant and CDP down.
+    socket.receive(JSON.stringify({ v: PROTOCOL_VERSION, type: 'grant.revoke', grantId: put.grantId }))
+    await vi.waitFor(() => {
+      expect(vault.owned()).toEqual([])
+      expect(debuggerApi.detach).toHaveBeenCalledWith({ tabId: 9 }, expect.any(Function))
+    })
+    expect(() => vault.resolve(put.grantId)).toThrow(/grant expired/)
+  })
 })
+
+class RealSocket implements BridgeSocket {
+  sent: BridgeFrame[] = []
+  closed = false
+  private openHandlers: (() => void)[] = []
+  private messageHandlers: ((text: string) => void)[] = []
+  private closeHandlers: (() => void)[] = []
+
+  onOpen(handler: () => void): void { this.openHandlers.push(handler) }
+  onMessage(handler: (text: string) => void): void { this.messageHandlers.push(handler) }
+  onClose(handler: () => void): void { this.closeHandlers.push(handler) }
+  send(text: string): void { this.sent.push(JSON.parse(text) as BridgeFrame) }
+  close(): void {
+    if (this.closed) return
+    this.closed = true
+    for (const handler of this.closeHandlers) handler()
+  }
+  open(): void { for (const handler of this.openHandlers) handler() }
+  receive(text: string): void { for (const handler of this.messageHandlers) handler(text) }
+  sentFrames(): BridgeFrame[] { return this.sent }
+}

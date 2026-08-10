@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { GrantId } from '@dsh-external/dsh-browser-bridge-protocol'
 import { ChromeDebugger, type ChromeDebuggerApi } from '../src/cdp/chrome-debugger.ts'
 import { CdpSessionManager, type SessionDetachInfo } from '../src/cdp/session-manager.ts'
+import { navigatePage } from '../src/cdp/navigate.ts'
 
 class FakeDebuggerApi implements ChromeDebuggerApi {
   attach = vi.fn((_target: chrome.debugger.Debuggee, _version: string, callback?: () => void): Promise<void> => {
@@ -231,9 +232,12 @@ describe('CDP session manager', () => {
     session.refs.register(1, 'f', session.generation)
     api.sendCommand.mockImplementationOnce(() => new Promise(() => {}))
     const pending = manager.send(GRANT_A, 'Runtime.evaluate', { expression: '1' })
-    // The async send() registers its pending entry before dispatching.
+    // The async send() registers its pending entry before dispatching; wait
+    // for the actual send dispatch (session() already consumed 8 domain
+    // enable calls, so a bare toHaveBeenCalled would pass too early).
+    const baseline = api.sendCommand.mock.calls.length
     await vi.waitFor(() => {
-      expect(api.sendCommand).toHaveBeenCalled()
+      expect(api.sendCommand.mock.calls.length).toBeGreaterThan(baseline)
     })
     api.emitDetach({ tabId: 7 }, 'canceled_by_user')
     await expect(pending).rejects.toMatchObject({ code: 'debugger_detached' })
@@ -267,5 +271,118 @@ describe('CDP session manager', () => {
     await manager.cleanupOwned([7, 8])
     expect(api.detach).toHaveBeenCalledWith({ tabId: 7 }, expect.any(Function))
     expect(api.detach).toHaveBeenCalledWith({ tabId: 8 }, expect.any(Function))
+  })
+
+  describe('per-grant navigation authorization', () => {
+    const ORIGIN_A = 'http://127.0.0.1:4173/'
+    const ORIGIN_B = 'https://other.example/'
+
+    function navigateTo(api: FakeDebuggerApi, tabId: number, url: string): void {
+      api.emitEvent({ tabId }, 'Page.frameNavigated', {
+        frame: { id: 'frame-1', url, parentId: undefined },
+      })
+    }
+
+    it('does not let grant A\'s expected cross-origin navigation authorize grant B', async () => {
+      const { manager, api } = makeManager()
+      manager.bind({ grantId: GRANT_A, tabId: 7, url: ORIGIN_A })
+      manager.bind({ grantId: GRANT_B, tabId: 7, url: ORIGIN_A })
+      const sessionA = await manager.session(GRANT_A)
+      const sessionB = await manager.session(GRANT_B)
+      expect(api.attach).toHaveBeenCalledTimes(1)
+      // A arms its OWN expected-navigation window before navigating.
+      sessionA.expectNavigation(5_000, 'https://other.example')
+      navigateTo(api, 7, ORIGIN_B)
+      // A's window authorized its own transition...
+      expect(sessionA.writeSuspended).toBe(false)
+      expect(sessionA.currentUrl).toBe(ORIGIN_B)
+      // ...but B has no window: the cross-origin transition suspends B.
+      expect(sessionB.writeSuspended).toBe(true)
+      expect(sessionB.currentUrl).toBe(ORIGIN_B)
+    })
+
+    it('B writes return navigation_requires_confirmation while A stays writable', async () => {
+      const { manager, api } = makeManager()
+      manager.bind({ grantId: GRANT_A, tabId: 7, url: ORIGIN_A })
+      manager.bind({ grantId: GRANT_B, tabId: 7, url: ORIGIN_A })
+      const sessionA = await manager.session(GRANT_A)
+      const sessionB = await manager.session(GRANT_B)
+      sessionA.expectNavigation(5_000)
+      navigateTo(api, 7, ORIGIN_B)
+      // B was never re-authorized for the new origin: a write is refused.
+      await expect(navigatePage(sessionB, { url: `${ORIGIN_B}next` }))
+        .rejects.toMatchObject({ code: 'navigation_requires_confirmation' })
+      // A's own expected navigation is still writable.
+      await expect(navigatePage(sessionA, { url: `${ORIGIN_B}next` })).resolves.toMatchObject({ ok: true })
+    })
+
+    it('a new grant issued at the current URL can write while the old grant stays suspended', async () => {
+      const { manager, api } = makeManager()
+      manager.bind({ grantId: GRANT_A, tabId: 7, url: ORIGIN_A })
+      const sessionA = await manager.session(GRANT_A)
+      // Unexpected cross-origin transition suspends the old grant.
+      navigateTo(api, 7, ORIGIN_B)
+      expect(sessionA.writeSuspended).toBe(true)
+      // The user attaches the page AGAIN at its current URL in a new prompt:
+      // the new grant's baseline is the CURRENT URL, so it is writable.
+      const GRANT_C = GrantId('grant-c')
+      manager.bind({ grantId: GRANT_C, tabId: 7, url: ORIGIN_B })
+      const sessionC = await manager.session(GRANT_C)
+      expect(api.attach).toHaveBeenCalledTimes(1)
+      expect(sessionC.writeSuspended).toBe(false)
+      expect(sessionC.currentUrl).toBe(ORIGIN_B)
+      await expect(navigatePage(sessionC, { url: `${ORIGIN_B}next` })).resolves.toMatchObject({ ok: true })
+      // The old grant remains suspended.
+      expect(sessionA.writeSuspended).toBe(true)
+      // Only the final revoke detaches the shared physical session.
+      manager.revoke(GRANT_A)
+      manager.revoke(GRANT_C)
+      expect(api.detach).toHaveBeenCalledWith({ tabId: 7 }, expect.any(Function))
+    })
+
+    it('classifies navigations for grants that never made a tool call', async () => {
+      const { manager, api } = makeManager()
+      manager.bind({ grantId: GRANT_A, tabId: 7, url: ORIGIN_A })
+      manager.bind({ grantId: GRANT_B, tabId: 7, url: ORIGIN_A })
+      // Grant B never called session(): the navigation must still suspend B.
+      const sessionA = await manager.session(GRANT_A)
+      navigateTo(api, 7, ORIGIN_B)
+      expect(sessionA.writeSuspended).toBe(true)
+      const sessionB = await manager.session(GRANT_B)
+      expect(sessionB.writeSuspended).toBe(true)
+      expect(api.attach).toHaveBeenCalledTimes(1)
+    })
+
+    it('rolls back the debugger and state when a CDP domain fails to enable', async () => {
+      const api = new FakeDebuggerApi()
+      // The wrapper settles sendCommand through the callback + lastError:
+      // make the second domain enable fail exactly like Chrome would.
+      let lastError: { message?: string } | undefined
+      let enableCount = 0
+      const manager = new CdpSessionManager({
+        debuggerApi: new ChromeDebugger(api as unknown as typeof chrome.debugger, { lastError: () => lastError }),
+      })
+      manager.bind({ grantId: GRANT_A, tabId: 7 })
+      api.sendCommand.mockImplementation((_t: chrome.debugger.Debuggee, _m: string, _p?: object, callback?: (result?: unknown) => void) => {
+        enableCount += 1
+        lastError = enableCount >= 2 ? { message: 'DOM.enable failed' } : undefined
+        callback?.({})
+        return Promise.resolve({})
+      })
+      await expect(manager.session(GRANT_A)).rejects.toThrow('DOM.enable failed')
+      // The half-initialized session was rolled back: the debugger is
+      // detached and no attached session state survives.
+      expect(api.detach).toHaveBeenCalledWith({ tabId: 7 }, expect.any(Function))
+      // A retry re-attaches and re-initializes from scratch instead of
+      // returning a half-initialized session.
+      lastError = undefined
+      api.sendCommand.mockImplementation((_t: chrome.debugger.Debuggee, _m: string, _p?: object, callback?: (result?: unknown) => void) => {
+        callback?.({})
+        return Promise.resolve({})
+      })
+      const session = await manager.session(GRANT_A)
+      expect(session.attached).toBe(true)
+      expect(api.attach).toHaveBeenCalledTimes(2)
+    })
   })
 })
