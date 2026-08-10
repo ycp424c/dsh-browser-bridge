@@ -38,6 +38,8 @@ interface AxNode {
   childIds?: string[]
   backendDOMNodeId?: number
   frameId?: string
+  /** Node-id index installed for the traversal. */
+  childById?: Map<string, AxNode>
 }
 
 const INTERACTIVE_ROLES = new Set([
