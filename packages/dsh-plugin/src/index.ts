@@ -3,7 +3,7 @@
  * Owns the pairing endpoint, the authenticated WebSocket bridge, prompt
  * marker consumption, and turn-scoped browser tools.
  */
-import { Context } from 'cordis'
+import type { Context } from 'cordis'
 import z from 'schemastery'
 import { WebSocketServer } from 'ws'
 import { PairingStore, EXTENSION_ORIGIN_PATTERN } from './bridge/pairing-store.ts'

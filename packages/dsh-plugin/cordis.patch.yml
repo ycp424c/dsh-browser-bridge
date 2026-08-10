@@ -1,6 +1,9 @@
 # dsh-browser-bridge profile bundle patch: one row mounting the external
 # plugin into the web profile. Applied as a bundle layer over the web-app
-# tree; defaults come from the plugin's Config schema.
+# tree; defaults come from the plugin's Config schema. The entry injects the
+# web route carrier so the pairing and upgrade routes can register.
 - insert:
     - id: dsh-browser-bridge
       name: '@dsh-external/dsh-browser-bridge'
+      inject:
+        - httpServer

@@ -7,6 +7,33 @@ import { defineConfig, type TsdownPlugin } from 'tsdown'
  * self-contained (the component injects a `<style>` tag itself). CSS Modules
  * (`.module.css`) are left untouched.
  */
+/**
+ * Resolve `@deepseek-ai/*` imports to the linked DSH checkout source so the
+ * runtime packages can be inlined into the host bundle.
+ */
+function dshSourceResolver(): TsdownPlugin {
+  const pathsFile = resolve(import.meta.dirname, '../../.dsh/tsconfig.paths.json')
+  let paths: Record<string, string[]> = {}
+  try {
+    paths = (JSON.parse(readFileSync(pathsFile, 'utf8')) as {
+      compilerOptions: { paths: Record<string, string[]> }
+    }).compilerOptions.paths
+  } catch {
+    // No linked checkout: keep the imports external.
+  }
+  return {
+    name: 'dsh-browser-bridge-dsh-source',
+    resolveId(source) {
+      // Exact keys cover the checkout's packages AND its vendored cordis,
+      // cosmokit, schemastery, and @cordisjs/* copies.
+      const target = paths[source]?.[0]
+      if (target === undefined) return null
+      if (source === 'cordis') console.log('[resolver] cordis ->', target)
+      return resolve(import.meta.dirname, '../../.dsh', target)
+    },
+  }
+}
+
 function inlineCssText(): TsdownPlugin {
   return {
     name: 'dsh-browser-bridge-inline-css-text',
@@ -40,8 +67,26 @@ export default [
     clean: true,
     outDir: 'lib',
     outExtension: () => ({ js: '.js', dts: '.d.ts' }),
-    external: ['cordis', 'schemastery', 'ws', /^@deepseek-ai\//],
-    noExternal: [/^@dsh-external\//],
+    plugins: [dshSourceResolver()],
+    // Builtin alias runs before the dependency plugins: vendored cordis is
+    // inlined so the bundle runs against a source checkout AND a built
+    // installation.
+    alias: {
+      cordis: resolve(import.meta.dirname, '../../.dsh/source/current/vendor/cordis/src/index.ts'),
+    },
+    // cordis/schemastery/ws come from the host DSH installation; the DSH
+    // runtime packages are inlined so the plugin works against a source
+    // checkout AND a built installation.
+    deps: {
+      neverBundle: ['schemastery', 'ws'],
+      // protocol, cordis, and the DSH runtime packages are inlined (they are
+      // not declared production dependencies), so the automatic
+      // externalization never shadows the alwaysBundle list.
+      alwaysBundle: (id) =>
+        id === 'cordis'
+        || id === '@dsh-external/dsh-browser-bridge-protocol'
+        || id.startsWith('@deepseek-ai/'),
+    },
   }),
   // Browser half: DSH module-loader factory artifact at lib/client.js.
   defineConfig({
@@ -54,14 +99,16 @@ export default [
     sourcemap: true,
     clean: false,
     outDir: 'lib',
-    external: [
-      'react',
-      'react/jsx-runtime',
-      'cordis',
-      '@deepseek-ai/dsh-client-ui-slots',
-      '@deepseek-ai/dsh-client-runtime/client',
-    ],
-    noExternal: [/^@dsh-external\//],
+    deps: {
+      neverBundle: [
+        'react',
+        'react/jsx-runtime',
+        'cordis',
+        '@deepseek-ai/dsh-client-ui-slots',
+        '@deepseek-ai/dsh-client-runtime/client',
+      ],
+      alwaysBundle: (id) => id === '@dsh-external/dsh-browser-bridge-protocol',
+    },
     plugins: [inlineCssText()],
     outputOptions: {
       entryFileNames: 'client.js',
