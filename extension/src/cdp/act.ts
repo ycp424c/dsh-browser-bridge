@@ -165,7 +165,7 @@ async function scroll(
   return resultOf(session)
 }
 
-function targetOf(action: { ref?: string; selector?: string }): Target {
+function targetOf(action: { ref?: string; selector?: string }): { ref?: string; selector?: string } {
   return action.ref !== undefined
     ? { ref: action.ref }
     : action.selector !== undefined
@@ -181,7 +181,11 @@ export async function performAction(session: TabSession, action: ActAction): Pro
         ...(action.clickCount !== undefined ? { clickCount: action.clickCount } : {}),
       })
     case 'type':
-      return typeText(session, { ...targetOf(action), text: action.text, replace: action.replace })
+      return typeText(session, {
+        ...targetOf(action),
+        text: action.text,
+        ...(action.replace !== undefined ? { replace: action.replace } : {}),
+      })
     case 'select':
       return select(session, { ...targetOf(action), value: action.value })
     case 'hover':
@@ -191,7 +195,10 @@ export async function performAction(session: TabSession, action: ActAction): Pro
     case 'press':
       return press(session, action.key)
     case 'scroll':
-      return scroll(session, targetOf(action), { deltaX: action.deltaX, deltaY: action.deltaY })
+      return scroll(session, targetOf(action), {
+        ...(action.deltaX !== undefined ? { deltaX: action.deltaX } : {}),
+        ...(action.deltaY !== undefined ? { deltaY: action.deltaY } : {}),
+      })
     default:
       throw bridgeError('internal', `unknown action ${JSON.stringify(action)}`, false)
   }
