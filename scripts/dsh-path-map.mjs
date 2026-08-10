@@ -40,12 +40,12 @@ function sourceEntry(dir) {
   return null
 }
 
-/** Rewrite one DSH-root-relative target to a repo-relative tsconfig path. */
+/** Rewrite one DSH-root-relative target to a tsconfig path relative to `.dsh/`. */
 function relativeToRepo(sourceRoot, target) {
   const rel = target.startsWith(sourceRoot)
     ? target.slice(sourceRoot.length).replace(/^[\\/]+/, '')
     : target
-  return `.dsh/source/current/${rel}`
+  return `./source/current/${rel}`
 }
 
 /**
@@ -103,7 +103,7 @@ export function buildDshPathMap(sourceRoot) {
       for (const [name, targets] of Object.entries(own)) {
         if (paths[name] !== undefined) continue
         paths[name] = targets.map((target) => {
-          if (target.startsWith('./')) return `.dsh/source/current/${target.slice(2)}`
+          if (target.startsWith('./')) return `./source/current/${target.slice(2)}`
           return target
         })
       }
