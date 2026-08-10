@@ -52,9 +52,9 @@ export default defineBackground(() => {
       case 'screenshot':
         return (await captureScreenshot(session, (args ?? {}) as { ref?: string; selector?: string })) as unknown as JsonValue
       case 'console':
-        return { entries: session.consoleEntries }
+        return { entries: session.consoleEntries } as unknown as JsonValue
       case 'network':
-        return { entries: session.networkEntries }
+        return { entries: session.networkEntries } as unknown as JsonValue
       default:
         throw bridgeError('internal', `browser operation ${operation} is not wired yet`, false)
     }
