@@ -143,7 +143,10 @@ export async function captureScreenshot(
 ): Promise<ScreenshotResult> {
   let clip: { x: number; y: number; width: number; height: number; scale: number } | undefined
   if (args.ref !== undefined || args.selector !== undefined) {
-    const nodeId = await resolveNode(session, { ref: args.ref, selector: args.selector })
+    const nodeId = await resolveNode(session, {
+      ...(args.ref !== undefined ? { ref: args.ref } : {}),
+      ...(args.selector !== undefined ? { selector: args.selector } : {}),
+    })
     const box = await session.send('DOM.getBoxModel', { nodeId })
     const content = (box as { model?: { content?: number[] } }).model?.content
     if (content === undefined || content.length < 8) {
