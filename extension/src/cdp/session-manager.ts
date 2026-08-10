@@ -127,6 +127,18 @@ export class CdpSessionManager {
     }
   }
 
+  /**
+   * Service-worker startup reconciliation: best-effort detach ONLY the owned
+   * tab ids recorded in the prior session's ledger, then start empty.
+   */
+  async cleanupOwned(tabIds: number[]): Promise<void> {
+    for (const tabId of tabIds) {
+      await this.detachTab(tabId)
+      this.sessions.delete(tabId)
+      this.tabGrants.delete(tabId)
+    }
+  }
+
   /** Revoke every grant and detach every owned session. */
   revokeAll(): void {
     for (const tabId of [...this.sessions.keys()]) {

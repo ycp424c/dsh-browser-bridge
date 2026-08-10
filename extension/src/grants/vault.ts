@@ -35,10 +35,22 @@ export class GrantVault {
   private readonly now: () => number
   private readonly defaultTtlMs: number
   private readonly grants = new Map<string, VaultGrant>()
+  private expiryTimer: ReturnType<typeof setTimeout> | null = null
+  private readonly listeners = new Set<() => void>()
 
   constructor(options: GrantVaultOptions = {}) {
     this.now = options.now ?? Date.now
     this.defaultTtlMs = options.ttlMs ?? 10 * 60_000
+  }
+
+  /** Subscribe to grant-set changes (for ledger synchronization). */
+  subscribe(listener: () => void): () => void {
+    this.listeners.add(listener)
+    return () => this.listeners.delete(listener)
+  }
+
+  private notify(): void {
+    for (const listener of this.listeners) listener()
   }
 
   create(input: { sessionId: string; tab: TabDescriptor; ttlMs?: number }): VaultGrant {
@@ -51,6 +63,7 @@ export class GrantVault {
       state: 'issued',
     }
     this.grants.set(grantId, grant)
+    this.notify()
     return grant
   }
 
@@ -71,6 +84,7 @@ export class GrantVault {
     if (grant === undefined) return
     grant.state = 'revoked'
     this.grants.delete(grantId)
+    this.notify()
   }
 
   /** Record the host's acceptance and its non-secret correlation handle. */
@@ -87,6 +101,7 @@ export class GrantVault {
   revokeAll(): GrantId[] {
     const affected = [...this.grants.keys()] as GrantId[]
     this.grants.clear()
+    this.notify()
     return affected
   }
 
@@ -108,5 +123,57 @@ export class GrantVault {
     return [...this.grants.values()]
       .filter(grant => grant.sessionId === sessionId)
       .map(grant => grant.grantId)
+  }
+
+  grantIdsOfTab(tabId: number): GrantId[] {
+    return [...this.grants.values()]
+      .filter(grant => grant.tab.tabId === tabId)
+      .map(grant => grant.grantId)
+  }
+
+  /**
+   * Serialize the non-secret ownership ledger for `chrome.storage.session`.
+   * Contains only { grantId, tabId } pairs — never page data.
+   */
+  serializeLedger(): string {
+    return JSON.stringify(this.owned())
+  }
+
+  /**
+   * Schedule one expiry sweep for the nearest deadline, repeating until the
+   * vault is empty. Expired grants are dropped and reported through
+   * `onExpired`; returns a disposer that stops the sweep.
+   */
+  startExpirySweep(onExpired: (grantIds: GrantId[]) => void): () => void {
+    const schedule = (): void => {
+      const nearest = this.nearestExpiry()
+      if (nearest === undefined) {
+        this.expiryTimer = null
+        return
+      }
+      const delay = Math.max(1, nearest - this.now())
+      this.expiryTimer = setTimeout(() => {
+        this.expiryTimer = null
+        const expired: GrantId[] = []
+        for (const [grantId, grant] of [...this.grants]) {
+          if (this.now() > grant.expiresAt) {
+            this.grants.delete(grantId)
+            expired.push(grantId as GrantId)
+          }
+        }
+        if (expired.length > 0) {
+          onExpired(expired)
+          this.notify()
+        }
+        schedule()
+      }, delay)
+    }
+    schedule()
+    return () => {
+      if (this.expiryTimer !== null) {
+        clearTimeout(this.expiryTimer)
+        this.expiryTimer = null
+      }
+    }
   }
 }

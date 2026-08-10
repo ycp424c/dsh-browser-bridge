@@ -21,6 +21,7 @@ import {
 import type { WebSocket } from 'ws'
 import { GrantStore } from './grant-store.ts'
 import { PairingStore } from './pairing-store.ts'
+import { isReadOperation } from '../tools/definitions.ts'
 
 /** Socket face the server drives; the real transport wraps a `ws` socket. */
 export interface BridgeSocket {
@@ -36,6 +37,8 @@ export interface BridgeServerOptions {
   now?: () => number
   randomId?: () => string
   toolTimeoutMs?: number
+  /** How long a read-only call waits for a reconnected extension (default 10s). */
+  readRetryWaitMs?: number
 }
 
 /** Adapter over a `ws` socket for the real DSH host transport. */
@@ -58,9 +61,18 @@ export function attachWebSocket(server: BridgeServer, socket: WebSocket, origin:
 }
 
 interface PendingCall {
+  requestId: RequestId
+  operation: BrowserOperation
+  grantId: GrantId
+  args: JsonValue
   resolve(value: JsonValue): void
   reject(error: unknown): void
   finish(): void
+  /** The extension acknowledged delivery (tool.accepted). */
+  accepted: boolean
+  /** The call already consumed its one retry after a disconnect. */
+  retried: boolean
+  retryTimer: ReturnType<typeof setTimeout> | null
 }
 
 interface LiveConnection {
@@ -74,9 +86,11 @@ export class BridgeServer {
   private readonly now: () => number
   private readonly randomId: () => string
   private readonly toolTimeoutMs: number
+  private readonly readRetryWaitMs: number
   private connection: LiveConnection | null = null
   private readonly pending = new Map<string, PendingCall>()
   private readonly connectionLostHandlers = new Set<() => void>()
+  private readonly wiredSockets = new Set<BridgeSocket>()
 
   constructor(options: BridgeServerOptions) {
     this.pairing = options.pairing
@@ -90,6 +104,7 @@ export class BridgeServer {
       return out
     })
     this.toolTimeoutMs = options.toolTimeoutMs ?? 60_000
+    this.readRetryWaitMs = options.readRetryWaitMs ?? 10_000
   }
 
   /** The currently authenticated connection id, or undefined. */
@@ -104,7 +119,39 @@ export class BridgeServer {
    * closing any prior one.
    */
   attach(socket: BridgeSocket, origin: string): void {
+    this.wireSocket(socket)
     let handshaken = false
+    // The handshake listener owns ONLY the hello step; after that, the
+    // wired message handler (wireSocket) dispatches every frame.
+    socket.onMessage(text => {
+      if (handshaken) return
+      let frame: BridgeFrame
+      try {
+        frame = decodeFrame(text)
+      } catch {
+        this.fail(socket, 'protocol_mismatch', 'received an invalid bridge frame')
+        return
+      }
+      if (frame.type !== 'hello') {
+        this.fail(socket, 'protocol_mismatch', 'expected a hello frame first')
+        return
+      }
+      try {
+        this.pairing.consume(frame.pairingNonce, origin)
+      } catch (error) {
+        this.fail(socket, 'permission_denied', error instanceof Error ? error.message : 'pairing rejected')
+        return
+      }
+      handshaken = true
+      const id = ConnectionId(this.randomId())
+      this.acceptAuthenticated(socket, id)
+    })
+  }
+
+  /** Register message/close handling exactly once per socket. */
+  private wireSocket(socket: BridgeSocket): void {
+    if (this.wiredSockets.has(socket)) return
+    this.wiredSockets.add(socket)
     socket.onMessage(text => {
       let frame: BridgeFrame
       try {
@@ -113,28 +160,13 @@ export class BridgeServer {
         this.fail(socket, 'protocol_mismatch', 'received an invalid bridge frame')
         return
       }
-      if (!handshaken) {
-        if (frame.type !== 'hello') {
-          this.fail(socket, 'protocol_mismatch', 'expected a hello frame first')
-          return
-        }
-        try {
-          this.pairing.consume(frame.pairingNonce, origin)
-        } catch (error) {
-          this.fail(socket, 'permission_denied', error instanceof Error ? error.message : 'pairing rejected')
-          return
-        }
-        handshaken = true
-        const id = ConnectionId(this.randomId())
-        this.acceptAuthenticated(socket, id)
-        return
-      }
       this.receive(frame, socket)
     })
     socket.onClose(() => {
+      this.wiredSockets.delete(socket)
       if (this.connection?.socket !== socket) return
       this.connection = null
-      this.rejectAllPending(bridgeError('bridge_disconnected', 'browser extension connection closed', true))
+      this.onConnectionLost(bridgeError('bridge_disconnected', 'browser extension connection closed', true))
       for (const handler of this.connectionLostHandlers) handler()
     })
   }
@@ -145,15 +177,30 @@ export class BridgeServer {
    * and rejects its pending calls.
    */
   acceptAuthenticated(socket: BridgeSocket, connectionId: ConnectionIdBrand = ConnectionId(this.randomId())): void {
+    this.wireSocket(socket)
     const prior = this.connection
     if (prior != null && prior.socket !== socket) {
       this.connection = null
       prior.socket.close()
-      this.rejectAllPending(bridgeError('bridge_disconnected', 'browser extension connection replaced', true))
+      this.onConnectionLost(bridgeError('bridge_disconnected', 'browser extension connection replaced', true))
       for (const handler of this.connectionLostHandlers) handler()
     }
     this.connection = { id: connectionId, socket }
     socket.send(encodeFrame({ v: PROTOCOL_VERSION, type: 'hello.ok', connectionId }))
+    // A newly authenticated connection may carry one retry for read calls.
+    for (const [requestId, pending] of [...this.pending]) {
+      if (!pending.retried || pending.retryTimer === null) continue
+      clearTimeout(pending.retryTimer)
+      pending.retryTimer = null
+      const freshId = RequestId(this.randomId())
+      this.pending.delete(requestId)
+      pending.requestId = freshId
+      this.pending.set(freshId, pending)
+      socket.send(encodeFrame({
+        v: PROTOCOL_VERSION, type: 'tool.call', requestId: freshId,
+        grantId: pending.grantId, operation: pending.operation, args: pending.args,
+      }))
+    }
   }
 
   /**
@@ -174,15 +221,29 @@ export class BridgeServer {
     if (signal.aborted) throw signal.reason
     const requestId = RequestId(this.randomId())
     return new Promise((resolve, reject) => {
+      const pending: PendingCall = {
+        requestId,
+        operation,
+        grantId,
+        args,
+        resolve,
+        reject,
+        finish: () => {},
+        accepted: false,
+        retried: false,
+        retryTimer: null,
+      }
       const finish = () => {
         clearTimeout(timer)
+        if (pending.retryTimer !== null) clearTimeout(pending.retryTimer)
         signal.removeEventListener('abort', onAbort)
-        this.pending.delete(requestId)
+        this.pending.delete(pending.requestId)
       }
+      pending.finish = finish
       const onAbort = () => { finish(); reject(bridgeError('bridge_disconnected', 'browser call cancelled', false)) }
       const timer = setTimeout(() => { finish(); reject(bridgeError('timeout', `${operation} timed out`, true)) }, this.toolTimeoutMs)
       signal.addEventListener('abort', onAbort, { once: true })
-      this.pending.set(requestId, { resolve, reject, finish })
+      this.pending.set(requestId, pending)
       connection.socket.send(encodeFrame({
         v: PROTOCOL_VERSION, type: 'tool.call', requestId, grantId, operation, args,
       }))
@@ -224,7 +285,7 @@ export class BridgeServer {
       this.connection = null
       socket.close()
     }
-    this.rejectAllPending(bridgeError('bridge_disconnected', 'browser bridge disposed', true))
+    this.onConnectionLost(bridgeError('bridge_disconnected', 'browser bridge disposed', true))
   }
 
   /** Handle one authenticated inbound frame from the live connection. */
@@ -232,8 +293,12 @@ export class BridgeServer {
     switch (frame.type) {
       case 'pong':
       case 'hello.ok':
-      case 'tool.accepted':
         return
+      case 'tool.accepted': {
+        const pending = this.pending.get(frame.requestId)
+        if (pending !== undefined) pending.accepted = true
+        return
+      }
       case 'ping':
         socket.send(encodeFrame({ v: PROTOCOL_VERSION, type: 'pong' }))
         return
@@ -286,11 +351,23 @@ export class BridgeServer {
     socket.close()
   }
 
-  private rejectAllPending(error: BridgeError): void {
-    for (const pending of this.pending.values()) {
-      pending.finish()
-      pending.reject(error)
+  /**
+   * Connection loss handling: writes reject immediately and are never
+   * replayed; reads may wait for one newly authenticated connection and
+   * resend once with a fresh request id.
+   */
+  private onConnectionLost(error: BridgeError): void {
+    for (const [requestId, pending] of [...this.pending]) {
+      if (pending.retried || !isReadOperation(pending.operation)) {
+        pending.finish()
+        pending.reject(error)
+        continue
+      }
+      pending.retried = true
+      pending.retryTimer = setTimeout(() => {
+        pending.finish()
+        pending.reject(error)
+      }, this.readRetryWaitMs)
     }
-    this.pending.clear()
   }
 }

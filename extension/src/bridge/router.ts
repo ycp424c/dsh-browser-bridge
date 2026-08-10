@@ -85,6 +85,11 @@ export class BridgeRouter {
   private readonly toolExecutor: ToolExecutor | undefined
   private readonly grantAckTimeoutMs: number
   private readonly pendingGrants = new Map<string, PendingGrant>()
+  /** Execution journal: requestId -> in-flight execution (dedupes duplicates). */
+  private readonly inFlight = new Map<string, Promise<JsonValue>>()
+  /** Settled read results kept briefly to answer exact duplicate request ids. */
+  private readonly resultCache = new Map<string, { result: JsonValue; at: number }>()
+  private readonly resultCacheTtlMs = 10_000
 
   constructor(deps: BridgeRouterDeps) {
     this.bridge = deps.bridge
@@ -238,16 +243,48 @@ export class BridgeRouter {
   /**
    * Resolve the exact grant and its session for one tool call. The active
    * tab is NEVER queried: a grant binds one exact tab at issue time.
+   *
+   * Delivery acknowledgement (`tool.accepted`) is sent only after the frame
+   * validated, the grant resolved live, and the execution entered the local
+   * journal. Exact duplicate request ids are answered from the journal cache
+   * without re-executing.
    */
   private async handleToolCall(frame: Extract<BridgeFrame, { type: 'tool.call' }>): Promise<void> {
     const { requestId, grantId, operation, args } = frame
+    const cached = this.resultCache.get(requestId)
+    if (cached !== undefined && Date.now() - cached.at <= this.resultCacheTtlMs) {
+      this.bridge.send({ v: PROTOCOL_VERSION, type: 'tool.result', requestId, result: { ok: true, value: cached.result } })
+      return
+    }
+    const inFlight = this.inFlight.get(requestId)
+    if (inFlight !== undefined) {
+      try {
+        const value = await inFlight
+        this.bridge.send({ v: PROTOCOL_VERSION, type: 'tool.result', requestId, result: { ok: true, value } })
+      } catch (error) {
+        this.bridge.send({
+          v: PROTOCOL_VERSION,
+          type: 'tool.result',
+          requestId,
+          result: { ok: false, error: normalizeToolError(error) },
+        })
+      }
+      return
+    }
     try {
       this.vault.resolve(grantId)
       const session = await this.sessionManager.session(grantId)
-      if (this.toolExecutor === undefined) {
-        throw bridgeError('internal', 'browser tool executor is not wired', false)
-      }
-      const value = await this.toolExecutor(session, operation, args)
+      const executing = (async (): Promise<JsonValue> => {
+        if (this.toolExecutor === undefined) {
+          throw bridgeError('internal', 'browser tool executor is not wired', false)
+        }
+        return this.toolExecutor(session, operation, args)
+      })()
+      this.inFlight.set(requestId, executing)
+      // Validated and journaled: acknowledge delivery before executing.
+      this.bridge.send({ v: PROTOCOL_VERSION, type: 'tool.accepted', requestId })
+      const value = await executing
+      this.resultCache.set(requestId, { result: value, at: Date.now() })
       this.bridge.send({ v: PROTOCOL_VERSION, type: 'tool.result', requestId, result: { ok: true, value } })
     } catch (error) {
       this.bridge.send({
@@ -256,6 +293,8 @@ export class BridgeRouter {
         requestId,
         result: { ok: false, error: normalizeToolError(error) },
       })
+    } finally {
+      this.inFlight.delete(requestId)
     }
   }
 

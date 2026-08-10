@@ -22,6 +22,9 @@ export default function App() {
   const [origin, setOrigin] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
   const [status, setStatus] = useState<BridgeClientState>('idle')
+  const [clientReady, setClientReady] = useState(false)
+  const [readinessExpired, setReadinessExpired] = useState(false)
+  const [iframeEpoch, setIframeEpoch] = useState(0)
   const iframeRef = useRef<HTMLIFrameElement | null>(null)
   const portRef = useRef<chrome.runtime.Port | null>(null)
 
@@ -50,8 +53,23 @@ export default function App() {
   const onMessage = (event: MessageEvent) => {
     if (event.source !== iframeRef.current?.contentWindow) return
     if (event.origin !== origin) return
+    const data = event.data as { type?: string }
+    if (data.type === 'bridge.client-ready') {
+      setClientReady(true)
+      return
+    }
     portRef.current?.postMessage({ type: 'panel.forward', payload: event.data })
   }
+
+  // Five-second readiness window after the iframe loads: no client-ready
+  // event means DSH Web may be offline or blocking extension framing.
+  useEffect(() => {
+    if (clientReady || origin === null) return
+    const timer = setTimeout(() => {
+      setReadinessExpired(true)
+    }, 5_000)
+    return () => clearTimeout(timer)
+  }, [clientReady, origin, iframeEpoch])
 
   useEffect(() => {
     window.addEventListener('message', onMessage)
@@ -73,6 +91,12 @@ export default function App() {
     } catch {
       setOrigin(null)
     }
+  }
+
+  const retry = () => {
+    setClientReady(false)
+    setReadinessExpired(false)
+    setIframeEpoch(epoch => epoch + 1)
   }
 
   if (validOrigin === null) {
@@ -107,6 +131,27 @@ export default function App() {
     )
   }
 
+  if (readinessExpired) {
+    return (
+      <div className="flex h-full items-center justify-center p-4">
+        <Card className="w-full max-w-sm">
+          <CardHeader>
+            <CardTitle>DSH Web did not respond</CardTitle>
+            <CardDescription>
+              The bridge client did not report ready within five seconds. DSH Web may be offline, or
+              it may block being embedded in the extension side panel (X-Frame-Options / CSP
+              frame-ancestors). The extension frame is configured for {validOrigin}.
+            </CardDescription>
+          </CardHeader>
+          <CardFooter className="flex gap-2">
+            <Button onClick={retry}>Retry</Button>
+            <Button variant="outline" onClick={() => setOrigin(null)}>Edit local origin</Button>
+          </CardFooter>
+        </Card>
+      </div>
+    )
+  }
+
   return (
     <div className="flex h-full flex-col">
       <div
@@ -118,6 +163,7 @@ export default function App() {
         <span className="truncate font-mono">{validOrigin}</span>
       </div>
       <iframe
+        key={iframeEpoch}
         ref={iframeRef}
         className="min-h-0 flex-1 border-0"
         src={validOrigin}

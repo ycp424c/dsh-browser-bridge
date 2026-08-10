@@ -12,9 +12,12 @@ import { performAction, type ActAction } from '../src/cdp/act.ts'
 import { navigatePage, type NavigateArgs } from '../src/cdp/navigate.ts'
 import { waitForCondition, type WaitCondition } from '../src/cdp/wait.ts'
 import { captureScreenshot } from '../src/cdp/capture.ts'
-import { bridgeError, type BrowserOperation, type JsonValue } from '@dsh-external/dsh-browser-bridge-protocol'
+import { bridgeError, type BrowserOperation, type GrantId, type JsonValue } from '@dsh-external/dsh-browser-bridge-protocol'
 import type { BridgeClientState } from '../src/bridge/client.ts'
 import type { ToolExecutor } from '../src/bridge/router.ts'
+
+/** Non-secret ownership ledger in chrome.storage.session (startup cleanup). */
+const OWNED_LEDGER_KEY = 'dshBrowserBridge.owned'
 
 export default defineBackground(() => {
   void chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })
@@ -61,6 +64,63 @@ export default defineBackground(() => {
   }
   const router = new BridgeRouter({ bridge: client, vault, catalog, sessionManager, toolExecutor })
   const panels = new Set<chrome.runtime.Port>()
+  // One disposer registry for every background listener so recreation never
+  // leaves duplicates behind.
+  const disposers: Array<() => void> = []
+
+  /** Notify the host about one revoked grant. */
+  const notifyHostRevoke = (grantId: GrantId): void => {
+    try {
+      client.send({ v: 1, type: 'grant.revoke', grantId })
+    } catch {
+      // The bridge may be down; the host drops grants on disconnect anyway.
+    }
+  }
+
+  /** Revoke one grant everywhere (vault, CDP, host). */
+  const revokeGrant = (grantId: GrantId): void => {
+    vault.revoke(grantId)
+    sessionManager.revoke(grantId)
+    notifyHostRevoke(grantId)
+  }
+
+  // Startup reconciliation: detach ONLY the tab ids our previous session
+  // owned, clear the ledger, then accept new work.
+  const reconcileStartup = async (): Promise<void> => {
+    const storage = chromeSettingsStorage(chrome.storage.session)
+    const ledger = await storage.get(OWNED_LEDGER_KEY)
+    if (ledger !== undefined) {
+      try {
+        const entries = JSON.parse(ledger) as Array<{ tabId: number }>
+        await sessionManager.cleanupOwned(entries.map(entry => entry.tabId))
+      } catch {
+        // A malformed ledger is discarded; cleanup is best-effort.
+      }
+    }
+    await chrome.storage.session.remove(OWNED_LEDGER_KEY)
+  }
+  disposers.push(() => { void chrome.storage.session.remove(OWNED_LEDGER_KEY) })
+
+  // Ownership ledger mirror (non-secret { grantId, tabId } pairs only).
+  const writeLedger = (): void => {
+    void chrome.storage.session.set({ [OWNED_LEDGER_KEY]: vault.serializeLedger() })
+  }
+  disposers.push(vault.subscribe(writeLedger))
+
+  // Expiry: one timer for the nearest deadline, revoking on the way out.
+  disposers.push(vault.startExpirySweep(expired => {
+    for (const grantId of expired) {
+      sessionManager.revoke(grantId)
+      notifyHostRevoke(grantId)
+    }
+  }))
+
+  // Tab closure revokes every grant bound to that tab.
+  const onTabRemoved = (tabId: number): void => {
+    for (const grantId of vault.grantIdsOfTab(tabId)) revokeGrant(grantId)
+  }
+  chrome.tabs.onRemoved.addListener(onTabRemoved)
+  disposers.push(() => chrome.tabs.onRemoved.removeListener(onTabRemoved))
 
   // The configured DSH origin is never attachable; refresh on settings change.
   const syncExcludedOrigins = async (): Promise<void> => {
@@ -68,20 +128,22 @@ export default defineBackground(() => {
     catalog.setExcludedOrigins([origin])
   }
   void syncExcludedOrigins()
-  chrome.storage.onChanged.addListener((changes, area) => {
+  const onStorageChanged = (changes: Record<string, chrome.storage.StorageChange>, area: string): void => {
     if (area === 'local' && changes[DSH_ORIGIN_STORAGE_KEY] !== undefined) {
       void syncExcludedOrigins()
     }
-  })
+  }
+  chrome.storage.onChanged.addListener(onStorageChanged)
+  disposers.push(() => chrome.storage.onChanged.removeListener(onStorageChanged))
 
   const broadcastStatus = (state: BridgeClientState): void => {
     for (const port of panels) {
       port.postMessage({ type: 'bridge.status', state })
     }
   }
-  client.onState(broadcastStatus)
+  disposers.push(client.onState(broadcastStatus))
 
-  chrome.runtime.onConnect.addListener(port => {
+  const onConnect = (port: chrome.runtime.Port): void => {
     if (port.name !== 'sidepanel') return
     panels.add(port)
     port.postMessage({ type: 'bridge.status', state: client.state })
@@ -89,5 +151,9 @@ export default defineBackground(() => {
     port.onDisconnect.addListener(() => {
       panels.delete(port)
     })
-  })
+  }
+  chrome.runtime.onConnect.addListener(onConnect)
+  disposers.push(() => chrome.runtime.onConnect.removeListener(onConnect))
+
+  void reconcileStartup()
 })

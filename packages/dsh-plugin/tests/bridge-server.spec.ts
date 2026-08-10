@@ -140,15 +140,15 @@ describe('bridge server', () => {
     await expect(pending).rejects.toMatchObject({ code: 'stale_element' })
   })
 
-  it('rejects pending calls when the connection closes', async () => {
+  it('rejects pending WRITE calls when the connection closes', async () => {
     const { server, pairing } = makeServer()
     const { socket } = await connect(server, pairing)
-    const pending = server.request(GrantId('g1'), 'observe', {}, new AbortController().signal)
+    const pending = server.request(GrantId('g1'), 'act', { action: { kind: 'press', key: 'Enter' } }, new AbortController().signal)
     socket.close()
     await expect(pending).rejects.toMatchObject({ code: 'bridge_disconnected' })
   })
 
-  it('a replacement connection closes the prior one and rejects its pending calls', async () => {
+  it('a replacement connection closes the prior one and retries pending reads', async () => {
     const { server, pairing } = makeServer()
     const first = new FakeSocket()
     await connect(server, pairing, first)
@@ -156,7 +156,15 @@ describe('bridge server', () => {
     const second = new FakeSocket()
     await connect(server, pairing, second)
     expect(first.closed).toBe(true)
-    await expect(pending).rejects.toMatchObject({ code: 'bridge_disconnected' })
+    expect(second.frames().filter(frame => frame.type === 'tool.call')).toHaveLength(1)
+    const call = second.sentOf('tool.call') as ToolCallFrame
+    second.receive(JSON.stringify({
+      v: PROTOCOL_VERSION,
+      type: 'tool.result',
+      requestId: call.requestId,
+      result: { ok: true, value: { page: { url: 'http://x/' } } },
+    }))
+    await expect(pending).resolves.toMatchObject({ page: { url: 'http://x/' } })
   })
 
   it('aborts a pending call on signal abort', async () => {
