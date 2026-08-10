@@ -1,13 +1,13 @@
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
-import { defineConfig, type Plugin } from 'tsdown'
+import { defineConfig, type TsdownPlugin } from 'tsdown'
 
 /**
  * Inline plain `.css` imports as string modules so the DSH client bundle is
  * self-contained (the component injects a `<style>` tag itself). CSS Modules
  * (`.module.css`) are left untouched.
  */
-function inlineCssText(): Plugin {
+function inlineCssText(): TsdownPlugin {
   return {
     name: 'dsh-browser-bridge-inline-css-text',
     resolveId(source, importer) {
