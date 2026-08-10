@@ -32,9 +32,11 @@ export default defineBackground(() => {
   ): Promise<JsonValue> => {
     switch (operation) {
       case 'observe':
-        return observePage(session, (args ?? {}) as ObserveArgs)
+        // Results are plain JSON-shaped data; the interface lacks an index
+        // signature, so the lossless conversion is explicit at the boundary.
+        return (await observePage(session, (args ?? {}) as ObserveArgs)) as unknown as JsonValue
       case 'inspect':
-        return inspectElement(session, (args ?? {}) as InspectArgs)
+        return (await inspectElement(session, (args ?? {}) as InspectArgs)) as unknown as JsonValue
       default:
         throw bridgeError('internal', `browser operation ${operation} is not wired yet`, false)
     }
