@@ -91,7 +91,7 @@ describe('browser-tabs source', () => {
     const candidates = await source.candidates({ sessionId: s('s1') }, request(''))
     const outcome = source.onPick(pick(candidates[0]!))
     const ref = (outcome as { insert: { ref: string } }).insert.ref
-    expect(store.get(ref, s('s1'))?.tab.tabId).toBe(1)
+    expect(store.get(ref, s('s1'))?.target.tabId).toBe(1)
     expect(store.get(ref, s('other'))).toBeUndefined()
   })
 
@@ -102,7 +102,7 @@ describe('browser-tabs source', () => {
     const b = store.allocate(s('s1'), TABS[1]!, 'Dashboard')
     store.allocate(s('s1'), TABS[2]!, 'Dashboard')
     expect(store.get(a.ref, s('s1'))).toBeUndefined()
-    expect(store.get(b.ref, s('s1'))?.tab.tabId).toBe(2)
+    expect(store.get(b.ref, s('s1'))?.target.tabId).toBe(2)
     now = 1_000 + 11 * 60_000
     expect(store.get(b.ref, s('s1'))).toBeUndefined()
   })

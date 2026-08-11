@@ -1,13 +1,15 @@
 /**
- * Bounded per-session tab-reference state. Each record carries a random
- * non-secret ref id, a copied tab descriptor, the session, and a display
- * label; entries expire after 10 minutes and are capped at 100 per session.
+ * Bounded per-session target-reference state, generic over the copied
+ * target descriptor (Chrome `TabDescriptor` or a provider-neutral
+ * `BrowserTargetDescriptor`). Each record carries a random non-secret ref
+ * id, a copied target, the session, and a display label; entries expire
+ * after 10 minutes and are capped at 100 per session.
  */
-import { newGrantHandle, type GrantHandle, type TabDescriptor } from '@dsh-external/dsh-browser-bridge-protocol'
+import { newGrantHandle, type GrantHandle } from '@dsh-external/dsh-browser-bridge-protocol'
 
-export interface TabReference {
+export interface TargetReference<T> {
   ref: GrantHandle
-  tab: TabDescriptor
+  target: T
   sessionId: string
   label: string
   createdAt: number
@@ -19,11 +21,11 @@ export interface ReferenceStoreOptions {
   maxAgeMs?: number
 }
 
-export class ReferenceStore {
+export class ReferenceStore<T> {
   private readonly now: () => number
   private readonly maxEntries: number
   private readonly maxAgeMs: number
-  private readonly entries = new Map<string, TabReference>()
+  private readonly entries = new Map<string, TargetReference<T>>()
 
   constructor(options: ReferenceStoreOptions = {}) {
     this.now = options.now ?? Date.now
@@ -32,7 +34,7 @@ export class ReferenceStore {
   }
 
   /** Allocate a fresh reference; evicts the oldest entry of the session at the cap. */
-  allocate(sessionId: string, tab: TabDescriptor, label: string): TabReference {
+  allocate(sessionId: string, target: T, label: string): TargetReference<T> {
     this.purgeExpired()
     const sessionEntries = [...this.entries.values()].filter(entry => entry.sessionId === sessionId)
     while (sessionEntries.length >= this.maxEntries) {
@@ -41,9 +43,9 @@ export class ReferenceStore {
       sessionEntries.splice(sessionEntries.indexOf(oldest), 1)
     }
     const ref = newGrantHandle()
-    const record: TabReference = {
+    const record: TargetReference<T> = {
       ref,
-      tab: { ...tab },
+      target: { ...target },
       sessionId,
       label,
       createdAt: this.now(),
@@ -53,7 +55,7 @@ export class ReferenceStore {
   }
 
   /** Resolve one reference; `sessionId` optionally pins the owning session. */
-  get(ref: string, sessionId?: string): TabReference | undefined {
+  get(ref: string, sessionId?: string): TargetReference<T> | undefined {
     const record = this.entries.get(ref)
     if (record === undefined) return undefined
     if (sessionId !== undefined && record.sessionId !== sessionId) return undefined

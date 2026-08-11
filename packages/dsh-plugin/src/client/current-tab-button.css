@@ -56,3 +56,10 @@
   color: var(--bb-error, inherit);
   font-size: 0.7rem;
 }
+
+/* Current dev page button: same row geometry, distinct accent hook so the
+   embedded-panel entry is visually distinguishable from the extension tab
+   entry. */
+.dsh-bb-current-vite-page {
+  border-color: color-mix(in srgb, var(--bb-accent, currentColor) 45%, transparent);
+}

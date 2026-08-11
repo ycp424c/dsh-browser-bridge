@@ -73,6 +73,19 @@ describe('client apply', () => {
     expect(inject).toEqual(['slash', 'sessions', 'slots'])
   })
 
+  it('keeps Vite discovery active outside an extension iframe', async () => {
+    const { ctx, slash } = await bench()
+    // bench() wires the extension referrer; a standalone DSH Web has none.
+    Object.defineProperty(window.document, 'referrer', { value: '', configurable: true })
+    const fiber = ctx.plugin({ inject: [...inject], apply })
+    await fiber.await()
+
+    const names = slash.registerSource.mock.calls.map(call => (call[0] as { name: string }).name)
+    expect(names).toContain('vite-pages')
+    expect(names).not.toContain('browser-tabs')
+    await fiber.dispose()
+  })
+
   it('registers the button into conversation.input.dock with order 30, after the host dock rows', async () => {
     const { ctx, slots } = await bench()
     const fiber = ctx.plugin({ inject: [...inject], apply })
@@ -121,9 +134,10 @@ describe('client apply', () => {
     const fiber = ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
 
-    expect(slash.registerSource).toHaveBeenCalledTimes(1)
-    const source = (slash.registerSource as ReturnType<typeof vi.fn>).mock.calls[0]![0] as { name?: string; order?: number }
-    expect(source.name).toBe('browser-tabs')
+    const calls = slash.registerSource.mock.calls.map(call => call[0] as { name?: string; order?: number })
+    expect(calls.map(call => call.name)).toContain('vite-pages')
+    const source = calls.find(call => call.name === 'browser-tabs')!
+    expect(source).toMatchObject({ name: 'browser-tabs', order: -20 })
 
     await fiber.dispose()
     expect(slots.entries('conversation.input.dock').some(entry => entry.options.id === 'dsh-browser-bridge-current-tab')).toBe(false)

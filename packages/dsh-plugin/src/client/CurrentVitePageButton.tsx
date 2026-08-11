@@ -3,8 +3,9 @@ import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ConversationSnapshot } from '@deepseek-ai/dsh-client-runtime/client'
 import type { InputState } from '@deepseek-ai/dsh-client-ui-conversation/src/client/input/contract.ts'
 import type { ReferenceInsert } from '@deepseek-ai/dsh-client-ui-slash/src/types.ts'
-import type { TabDescriptor } from '@dsh-external/dsh-browser-bridge-protocol'
-import type { ExtensionChannel } from './extension-channel.ts'
+import type { BrowserTargetDescriptor } from '@dsh-external/dsh-browser-bridge-protocol'
+import type { ViteTargetApi } from './vite-api.ts'
+import type { VerifiedViteTarget } from './vite-parent-channel.ts'
 import { ReferenceStore } from './reference-store.ts'
 import cssText from './current-tab-button.css'
 
@@ -17,19 +18,21 @@ if (typeof document !== 'undefined' && document.head !== null) {
 }
 
 /** Injected by the slot registration; stable per session scope. */
-export interface CurrentTabButtonInjected {
+export interface CurrentVitePageButtonInjected {
   actx: ClientContext
-  channel: ExtensionChannel
-  store: ReferenceStore<TabDescriptor>
+  api: ViteTargetApi
+  store: ReferenceStore<BrowserTargetDescriptor>
+  /** The host-verified current-page identity of this embedded DSH Web. */
+  verified: VerifiedViteTarget
 }
 
-export interface CurrentTabButtonProps extends CurrentTabButtonInjected {
+export interface CurrentVitePageButtonProps extends CurrentVitePageButtonInjected {
   session: ConversationSnapshot
   input: InputState
 }
 
-/** One-click current-tab attachment for the DSH composer. */
-export function CurrentTabButton({ session, input, actx, channel, store }: CurrentTabButtonProps): JSX.Element {
+/** One-click current-page attachment for DSH Web embedded in a Vite page. */
+export function CurrentVitePageButton({ session, input, actx, api, store, verified }: CurrentVitePageButtonProps): JSX.Element {
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const frozen = input.phase !== 'plain'
@@ -39,19 +42,20 @@ export function CurrentTabButton({ session, input, actx, channel, store }: Curre
     setPending(true)
     setError(null)
     try {
-      const tab = await channel.request<{
-        tabId: number
-        windowId: number
-        title: string
-        url: string
-        favIconUrl?: string
-      }>('tabs.current', {})
-      const record = store.allocate(String(session.sessionId), tab, tab.title)
+      // The host is authoritative: re-read the live target list and match
+      // the verified targetId plus exact origin.
+      const targets = await api.listTargets()
+      const current = targets.find(target =>
+        target.targetId === verified.targetId && target.origin === verified.origin)
+      if (current === undefined) {
+        throw new Error('current page is no longer registered')
+      }
+      const record = store.allocate(String(session.sessionId), current, current.title)
       const reference: ReferenceInsert = {
-        source: 'browser-tabs',
+        source: 'vite-pages',
         ref: record.ref,
-        label: tab.title,
-        clipboardText: `@${tab.title}`,
+        label: current.title,
+        clipboardText: `@${current.title}`,
       }
       const applied = actx.bail('slash/input-insert-reference', {
         reference,
@@ -62,10 +66,10 @@ export function CurrentTabButton({ session, input, actx, channel, store }: Curre
         },
       })
       if (applied !== true) {
-        throw new Error('current tab could not be attached because the composer changed')
+        throw new Error('current page could not be attached because the composer changed')
       }
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'current tab could not be attached')
+      setError(reason instanceof Error ? reason.message : 'current page could not be attached')
     } finally {
       setPending(false)
     }
@@ -75,12 +79,12 @@ export function CurrentTabButton({ session, input, actx, channel, store }: Curre
     <div className="dsh-bb-current-tab-row">
       <button
         type="button"
-        className="dsh-bb-current-tab"
-        title="Attach current tab"
+        className="dsh-bb-current-tab dsh-bb-current-vite-page"
+        title="Attach current dev page"
         disabled={frozen || pending}
         onClick={() => { void attach() }}
       >
-        @当前标签页
+        @当前开发页
         {error !== null && <span className="dsh-bb-current-tab-error">{error}</span>}
       </button>
     </div>

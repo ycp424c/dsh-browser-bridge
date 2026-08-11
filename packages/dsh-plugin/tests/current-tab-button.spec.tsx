@@ -6,6 +6,7 @@ import type { ConversationSnapshot } from '@deepseek-ai/dsh-client-runtime/clien
 import type { InputState } from '@deepseek-ai/dsh-client-ui-conversation/src/client/input/contract.ts'
 import { CurrentTabButton } from '../src/client/CurrentTabButton.tsx'
 import { ReferenceStore } from '../src/client/reference-store.ts'
+import type { TabDescriptor } from '@dsh-external/dsh-browser-bridge-protocol'
 import type { ExtensionChannel } from '../src/client/extension-channel.ts'
 
 class FakeChannel {
@@ -20,7 +21,7 @@ class FakeChannel {
 describe('current tab button', () => {
   it('asks for the current tab and inserts a reference at the end of the draft', async () => {
     const channel = new FakeChannel()
-    const store = new ReferenceStore()
+    const store = new ReferenceStore<TabDescriptor>()
     const bail = vi.fn((_name: string, request: unknown) => {
       capturedRequest = request
       return true
@@ -68,7 +69,7 @@ describe('current tab button', () => {
     } as unknown as InputState
     const session = { sessionId: 's1' } as unknown as ConversationSnapshot
     const renderer = create(
-      <CurrentTabButton session={session} input={input} actx={actx} channel={channel as unknown as ExtensionChannel} store={new ReferenceStore()} />,
+      <CurrentTabButton session={session} input={input} actx={actx} channel={channel as unknown as ExtensionChannel} store={new ReferenceStore<TabDescriptor>()} />,
     )
     const button = renderer.root.findByType('button')
     await act(async () => {
@@ -90,7 +91,7 @@ describe('current tab button', () => {
       queue: [],
     } as unknown as InputState
     const renderer = create(
-      <CurrentTabButton session={session} input={submitting} actx={actx} channel={channel as unknown as ExtensionChannel} store={new ReferenceStore()} />,
+      <CurrentTabButton session={session} input={submitting} actx={actx} channel={channel as unknown as ExtensionChannel} store={new ReferenceStore<TabDescriptor>()} />,
     )
     const button = renderer.root.findByType('button')
     expect(button.props.disabled).toBe(true)
