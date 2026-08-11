@@ -36,6 +36,11 @@ export {
 } from './tools/dispatcher.ts'
 export { observeDocument, type ObserveNode, type ObserveResult } from './tools/observe.ts'
 export { inspectElement, COMPUTED_STYLE_ALLOWLIST, type InspectArgs, type InspectResult } from './tools/inspect.ts'
+export { actOnElement, type ActArgs } from './tools/act.ts'
+export { navigatePage, type NavigateArgs } from './tools/navigate.ts'
+export { waitForCondition, type WaitArgs } from './tools/wait.ts'
+export { ConsoleCapture, type ConsoleRow } from './tools/console.ts'
+export { createHmrManager, type HmrManager } from './hmr.ts'
 export {
   boundField,
   isSensitiveAttribute,

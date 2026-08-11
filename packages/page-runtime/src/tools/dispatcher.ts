@@ -30,6 +30,42 @@ export const INSPECT_ARGS_SCHEMA: z.ZodType<JsonValue> = z.strictObject({
   properties: z.array(z.string().min(1).max(64)).max(20).optional(),
 }) as unknown as z.ZodType<JsonValue>
 
+export const ACT_ARGS_SCHEMA: z.ZodType<JsonValue> = z.strictObject({
+  action: z.strictObject({
+    kind: z.enum(['click', 'type', 'select', 'hover', 'focus', 'press', 'scroll']),
+    ref: z.string().min(1).max(128).optional(),
+    selector: z.string().min(1).max(500).optional(),
+    text: z.string().max(10_000).optional(),
+    replace: z.boolean().optional(),
+    value: z.string().max(10_000).optional(),
+    key: z.string().min(1).max(64).optional(),
+    deltaX: z.number().optional(),
+    deltaY: z.number().optional(),
+    requireTrusted: z.boolean().optional(),
+  }),
+}) as unknown as z.ZodType<JsonValue>
+
+export const NAVIGATE_ARGS_SCHEMA: z.ZodType<JsonValue> = z.strictObject({
+  url: z.string().max(2048).optional(),
+  history: z.enum(['back', 'forward']).optional(),
+  reload: z.boolean().optional(),
+}) as unknown as z.ZodType<JsonValue>
+
+export const WAIT_ARGS_SCHEMA: z.ZodType<JsonValue> = z.strictObject({
+  condition: z.strictObject({
+    kind: z.enum(['selector', 'text', 'url', 'ready', 'stable', 'generation']),
+    selector: z.string().min(1).max(500).optional(),
+    state: z.enum(['attached', 'visible', 'hidden', 'present', 'absent', 'interactive', 'complete']).optional(),
+    text: z.string().max(5_000).optional(),
+    pattern: z.string().max(500).optional(),
+    quietMs: z.number().int().min(50).max(10_000).optional(),
+    after: z.number().int().nonnegative().optional(),
+  }),
+  timeoutMs: z.number().int().min(100).max(60_000).optional(),
+}) as unknown as z.ZodType<JsonValue>
+
+export const CONSOLE_ARGS_SCHEMA: z.ZodType<JsonValue> = z.strictObject({}) as unknown as z.ZodType<JsonValue>
+
 /** Throw one stable tagged failure whose message carries the code. */
 export function bridgeFailure(code: BridgeError['code'], message: string): never {
   const error = new Error(`${code}: ${message}`)
