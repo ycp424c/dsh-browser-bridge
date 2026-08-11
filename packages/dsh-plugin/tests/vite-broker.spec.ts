@@ -353,11 +353,11 @@ describe('vite target broker', () => {
     })
     await expect(read).resolves.toMatchObject({ page: { url: 'http://127.0.0.1:5173/' } })
     // A second disconnect settles the read without a second retry once the
-    // reconnect window expires.
+    // reconnect window expires (the grant dies with the revoked target).
     const read2 = coordinator.request(grantId, 'observe', {}, new AbortController().signal)
     second.close()
     vi.advanceTimersByTime(91_000)
-    await expect(read2).rejects.toMatchObject({ code: 'target_disconnected' })
+    await expect(read2).rejects.toMatchObject({ code: 'grant_expired' })
     vi.useRealTimers()
   })
 
@@ -367,13 +367,16 @@ describe('vite target broker', () => {
     const { targetId, binding } = registerPageChecked(socket)
     const grantId = offerGrant(targetId)
     socket.close()
+    // The page left for a DIFFERENT loopback origin: the old logical target
+    // is revoked, not rebound. (Remote origins are rejected earlier by the
+    // loopback allowlist.)
     const other = new FakeSocket()
-    broker.attach(other, 'https://other.example')
+    broker.attach(other, 'http://127.0.0.1:5174')
     other.receive(JSON.stringify({ v: VITE_PAGE_PROTOCOL_VERSION, type: 'hello' }))
     other.receive(JSON.stringify({
       v: VITE_PAGE_PROTOCOL_VERSION,
       type: 'target.register',
-      target: { ...binding.descriptor, origin: 'https://other.example', url: 'https://other.example/' },
+      target: { ...binding.descriptor, origin: 'http://127.0.0.1:5174', url: 'http://127.0.0.1:5174/' },
     }))
     expect(other.closed).toBe(false)
     // The old origin's grants are revoked, not rebound.
@@ -470,6 +473,167 @@ describe('vite target broker review fixes', () => {
     const cancels = socket.frames().filter(frame => frame.type === 'tool.cancel')
     expect(cancels).toHaveLength(1)
     expect(cancels[0]).toMatchObject({ reason: 'timeout' })
+    vi.useRealTimers()
+  })
+
+  it('rejects a registration whose handshake origin does not match the declared origin', () => {
+    const { broker } = makeFixture()
+    const socket = new FakeSocket()
+    broker.attach(socket, 'http://localhost:5173')
+    socket.receive(JSON.stringify({ v: VITE_PAGE_PROTOCOL_VERSION, type: 'hello' }))
+    socket.receive(JSON.stringify({
+      v: VITE_PAGE_PROTOCOL_VERSION,
+      type: 'target.register',
+      target: {
+        targetId: 't'.repeat(43),
+        provider: 'vite',
+        title: 'Vite Page',
+        url: 'http://127.0.0.1:5173/',
+        origin: ORIGIN,
+        projectId: 'app',
+        generation: 0,
+        capabilities: ['observe', 'inspect', 'act', 'navigate', 'wait', 'console'],
+      },
+    }))
+    expect(socket.closed).toBe(true)
+    expect(socket.sentOf('error')).toMatchObject({ code: 'permission_denied' })
+    expect(broker.liveTargetCount()).toBe(0)
+  })
+
+  it('rejects a registration without a connection origin (missing Origin header)', () => {
+    const { broker } = makeFixture()
+    const socket = new FakeSocket()
+    broker.attach(socket, '')
+    socket.receive(JSON.stringify({ v: VITE_PAGE_PROTOCOL_VERSION, type: 'hello' }))
+    socket.receive(JSON.stringify({
+      v: VITE_PAGE_PROTOCOL_VERSION,
+      type: 'target.register',
+      target: {
+        targetId: 't'.repeat(43),
+        provider: 'vite',
+        title: 'Vite Page',
+        url: 'http://127.0.0.1:5173/',
+        origin: ORIGIN,
+        projectId: 'app',
+        generation: 0,
+        capabilities: ['observe', 'inspect', 'act', 'navigate', 'wait', 'console'],
+      },
+    }))
+    expect(socket.closed).toBe(true)
+    expect(socket.sentOf('error')).toMatchObject({ code: 'permission_denied' })
+    expect(broker.liveTargetCount()).toBe(0)
+  })
+
+  it('rejects a target registered from a non-loopback origin by default', () => {
+    const { broker } = makeFixture()
+    const socket = new FakeSocket()
+    broker.attach(socket, 'https://other.example')
+    socket.receive(JSON.stringify({ v: VITE_PAGE_PROTOCOL_VERSION, type: 'hello' }))
+    socket.receive(JSON.stringify({
+      v: VITE_PAGE_PROTOCOL_VERSION,
+      type: 'target.register',
+      target: {
+        targetId: 't'.repeat(43),
+        provider: 'vite',
+        title: 'Remote Page',
+        url: 'https://other.example/',
+        origin: 'https://other.example',
+        projectId: 'app',
+        generation: 0,
+        capabilities: ['observe', 'inspect', 'act', 'navigate', 'wait', 'console'],
+      },
+    }))
+    expect(socket.closed).toBe(true)
+    expect(socket.sentOf('error')).toMatchObject({ code: 'permission_denied' })
+    expect(broker.liveTargetCount()).toBe(0)
+  })
+
+  it('admits a non-loopback origin explicitly listed in allowedOrigins', () => {
+    const grants = new GrantStore()
+    const registry = new ProviderRegistry()
+    const coordinator = new TargetCoordinator({ providers: registry, grants })
+    const broker = new ViteTargetBroker({ coordinator, allowedOrigins: ['https://other.example'] })
+    registry.register(broker)
+    createdBrokers.push(broker)
+    const socket = new FakeSocket()
+    broker.attach(socket, 'https://other.example')
+    socket.receive(JSON.stringify({ v: VITE_PAGE_PROTOCOL_VERSION, type: 'hello' }))
+    socket.receive(JSON.stringify({
+      v: VITE_PAGE_PROTOCOL_VERSION,
+      type: 'target.register',
+      target: {
+        targetId: 't'.repeat(43),
+        provider: 'vite',
+        title: 'Remote Page',
+        url: 'https://other.example/',
+        origin: 'https://other.example',
+        projectId: 'app',
+        generation: 0,
+        capabilities: ['observe', 'inspect', 'act', 'navigate', 'wait', 'console'],
+      },
+    }))
+    expect(socket.closed).toBe(false)
+    expect(broker.liveTargetCount()).toBe(1)
+  })
+
+  it('settles a disconnected read by its call timeout even while tombstoned', async () => {
+    vi.useFakeTimers()
+    const grants = new GrantStore()
+    const registry = new ProviderRegistry()
+    const coordinator = new TargetCoordinator({ providers: registry, grants })
+    const broker = new ViteTargetBroker({ coordinator, toolTimeoutMs: 20_000 })
+    registry.register(broker)
+    createdBrokers.push(broker)
+    const socket = new FakeSocket()
+    broker.attach(socket, ORIGIN)
+    socket.receive(JSON.stringify({ v: VITE_PAGE_PROTOCOL_VERSION, type: 'hello' }))
+    socket.receive(JSON.stringify({
+      v: VITE_PAGE_PROTOCOL_VERSION,
+      type: 'target.register',
+      target: {
+        targetId: 't'.repeat(43),
+        provider: 'vite',
+        title: 'Vite Page',
+        url: 'http://127.0.0.1:5173/',
+        origin: ORIGIN,
+        projectId: 'app',
+        generation: 0,
+        capabilities: ['observe', 'inspect', 'act', 'navigate', 'wait', 'console'],
+      },
+    }))
+    const binding = broker.bindingFor('t'.repeat(43) as never)!
+    const grantId = coordinator.offer({ sessionId: 's', expiresAt: Date.now() + 60_000, target: binding }).grantId
+    const pending = coordinator.request(grantId, 'observe', {}, new AbortController().signal)
+    socket.close()
+    vi.advanceTimersByTime(21_000)
+    await expect(pending).rejects.toMatchObject({ code: 'timeout' })
+    const cancels = socket.frames().filter(frame => frame.type === 'tool.cancel')
+    expect(cancels).toHaveLength(1)
+    vi.useRealTimers()
+  })
+
+  it('a revoked grant never retries a tombstoned read after a legal rebind', async () => {
+    vi.useFakeTimers()
+    const { broker, registerPageChecked, offerGrant, coordinator } = makeFixture()
+    const first = new FakeSocket()
+    const { targetId, binding } = registerPageChecked(first)
+    const grantId = offerGrant(targetId)
+    const read = coordinator.request(grantId, 'observe', {}, new AbortController().signal)
+    first.close()
+    // The grant is revoked while the target is disconnected: its unaccepted
+    // read must settle in the tombstone, never retry after a rebind.
+    coordinator.revokeTarget({ targetId: targetId as never, origin: ORIGIN })
+    await expect(read).rejects.toMatchObject({ code: 'grant_expired' })
+    const second = new FakeSocket()
+    broker.attach(second, ORIGIN)
+    second.receive(JSON.stringify({ v: VITE_PAGE_PROTOCOL_VERSION, type: 'hello' }))
+    second.receive(JSON.stringify({
+      v: VITE_PAGE_PROTOCOL_VERSION,
+      type: 'target.register',
+      target: { ...binding.descriptor },
+    }))
+    expect(second.closed).toBe(false)
+    expect(second.frames().filter(frame => frame.type === 'tool.call')).toHaveLength(0)
     vi.useRealTimers()
   })
 })

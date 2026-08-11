@@ -70,4 +70,17 @@ describe('hmr generation manager', () => {
     await vi.advanceTimersByTimeAsync(500)
     expect(updates).toHaveLength(0)
   })
+
+  it('bounds a generation wait with its own hard timeout', async () => {
+    vi.useFakeTimers()
+    const { manager } = makeManager()
+    const pending = manager.waitForGeneration(9, new AbortController().signal)
+    // Attach the rejection handler before the timer fires.
+    const settled = expect(pending).rejects.toMatchObject({ code: 'timeout' })
+    await vi.advanceTimersByTimeAsync(30_001)
+    await settled
+    // A later update must not wake the finished waiter.
+    manager.notifyHmrUpdate()
+    await vi.advanceTimersByTimeAsync(500)
+  })
 })

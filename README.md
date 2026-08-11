@@ -200,6 +200,8 @@ HMR 会使旧元素引用失效（`stale_element`），并递增 generation；�
 ### 本地 DSH-only 边界与 CSP
 
 - Runtime 只连接**本机回环** DSH；不保存 token、grant 或页面证据到 localStorage/扩展存储；唯一的持久化写入是用户显式激活开关。
+- Host 侧 Vite broker 默认**只接受回环 origin 的页面注册**（`localhost`、`*.localhost`、`127/8`、`::1`），远程站点页面无法注册为 target；确需放行非回环 origin 时，可在插件配置中显式设置 `viteAllowedOrigins: ['https://example.com']`。
+- Vite WebSocket 升级与 `/targets`、`/grants` 一样要求**回环 Host 头**（防 DNS rebinding），且握手 `Origin` 必须与页面声明 origin 精确一致（浏览器必带 Origin，缺失即拒绝）。
 - 生产站点若设置 CSP，需在响应头中允许所选回环来源，例如：
 
 ```text

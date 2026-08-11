@@ -51,9 +51,9 @@ export function startPageRuntime(config: PageRuntimeConfig): PageRuntime {
   const refs = new ElementRegistry()
   const generationState = { value: generation }
 
-  // Console capture starts at injection; the buffer clears on revoke.
+  // Console capture starts with the bridge (activation): a dormant
+  // production page keeps its console untouched and makes no side effects.
   const consoleCapture = new ConsoleCapture({ generation: () => generationState.value })
-  consoleCapture.start()
 
   let socket: PageSocket | null = null
   let activator: Activator | null = null
@@ -142,6 +142,9 @@ export function startPageRuntime(config: PageRuntimeConfig): PageRuntime {
 
   const connect = async (): Promise<void> => {
     if (socket !== null) return
+    // The console evidence window opens with the connection; the buffer
+    // clears on revoke.
+    consoleCapture.start()
     socket = new PageSocket({
       url: wsUrl(),
       descriptor: () => buildDescriptor(generationState.value),

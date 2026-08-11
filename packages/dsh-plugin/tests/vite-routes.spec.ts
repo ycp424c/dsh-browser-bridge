@@ -214,4 +214,15 @@ describe('vite host routes', () => {
     })
     expect(response.status).toBe(403)
   })
+
+  it('rejects a WebSocket upgrade from a non-loopback Host before attaching', () => {
+    const { httpServer } = makeFixture()
+    const handler = httpServer.upgrades.get('/dsh-browser-bridge/vite/ws')
+    expect(handler).toBeDefined()
+    let destroyed = false
+    handler!({
+      headers: { host: 'public.example', origin: ORIGIN },
+    } as unknown as IncomingMessage, { destroy: () => { destroyed = true } } as unknown as never, Buffer.alloc(0))
+    expect(destroyed).toBe(true)
+  })
 })

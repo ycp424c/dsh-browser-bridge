@@ -192,8 +192,18 @@ export class PageSocket {
         for (const handler of [...this.revokeHandlers]) handler()
         return
       }
-      case 'error':
+      case 'error': {
+        // A protocol version mismatch is terminal: the host will never
+        // accept this runtime, so reconnecting would only burn backoff
+        // cycles without ever reaching a connected state.
+        if (frame.code === 'protocol_mismatch') {
+          this.closeRequested = true
+          this.stopHeartbeat()
+          this.settleAll()
+          this.socket?.close()
+        }
         return
+      }
     }
   }
 

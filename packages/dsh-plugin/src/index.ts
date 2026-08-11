@@ -36,6 +36,8 @@ export interface ConfigShape {
   viteHeartbeatMs?: number
   viteDisconnectMs?: number
   viteReconnectWindowMs?: number
+  /** Optional explicit origins allowed to register as Vite targets beyond loopback. */
+  viteAllowedOrigins?: string[]
 }
 
 export const Config: z<ConfigShape> = z.object({
@@ -53,6 +55,7 @@ export const Config: z<ConfigShape> = z.object({
   viteHeartbeatMs: z.natural().min(1_000).default(15_000),
   viteDisconnectMs: z.natural().min(1_000).default(45_000),
   viteReconnectWindowMs: z.natural().min(1_000).default(45_000),
+  viteAllowedOrigins: z.array(z.string().min(1).max(2048)).default([]),
 })
 
 export function apply(ctx: Context, config: ConfigShape): void {
@@ -73,6 +76,7 @@ export function apply(ctx: Context, config: ConfigShape): void {
     heartbeatMs: resolved.viteHeartbeatMs,
     disconnectMs: resolved.viteDisconnectMs,
     reconnectWindowMs: resolved.viteReconnectWindowMs,
+    allowedOrigins: resolved.viteAllowedOrigins,
   })
   registry.register(server)
   registry.register(broker)

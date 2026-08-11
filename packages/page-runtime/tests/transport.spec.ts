@@ -278,4 +278,24 @@ describe('page socket', () => {
     fake.receive(JSON.stringify({ v: VITE_PAGE_PROTOCOL_VERSION, type: 'target.revoke' }))
     expect(revokes).toEqual(['revoked'])
   })
+
+  it('a protocol_mismatch error frame stops reconnecting (terminal)', () => {
+    vi.useFakeTimers()
+    const calls: Array<{ operation: string; args: unknown; signal: AbortSignal }> = []
+    const { socket, sockets } = makeSocket(calls, { backoffBaseMs: 250, backoffMaxMs: 250 })
+    const first = sockets[0]!
+    first.open()
+    first.receive(JSON.stringify({
+      v: VITE_PAGE_PROTOCOL_VERSION,
+      type: 'error',
+      code: 'protocol_mismatch',
+      message: 'unsupported vite page protocol version',
+      retryable: false,
+    }))
+    // The host closes right after the error; no reconnect may follow.
+    first.close()
+    vi.advanceTimersByTime(60_000)
+    expect(sockets).toHaveLength(1)
+    vi.useRealTimers()
+  })
 })

@@ -106,4 +106,14 @@ describe('browser-tabs source', () => {
     now = 1_000 + 11 * 60_000
     expect(store.get(b.ref, s('s1'))).toBeUndefined()
   })
+
+  it('never allows a zero or negative entry cap (eviction floor)', () => {
+    for (const maxEntries of [0, -1]) {
+      const store = new ReferenceStore<TabDescriptor>({ maxEntries })
+      const a = store.allocate(s('s1'), TABS[0]!, 'Dashboard')
+      const b = store.allocate(s('s1'), TABS[1]!, 'Dashboard')
+      expect(store.get(b.ref, s('s1'))?.target.tabId).toBe(2)
+      expect(store.get(a.ref, s('s1'))).toBeUndefined()
+    }
+  })
 })

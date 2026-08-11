@@ -30,6 +30,7 @@ import {
   MAX_VITE_RECONNECT_WINDOW_MS,
   MAX_VITE_TARGETS,
   MAX_VITE_TARGETS_PER_ORIGIN,
+  isLoopbackDshOrigin,
   sanitizePageErrorText,
   sanitizePageResultValue,
   sanitizeViteTarget,
@@ -50,6 +51,12 @@ export interface ViteBrokerOptions {
   coordinator: TargetCoordinator
   /** Bounded per-call timeout; on expiry a tool.cancel is sent (default 60s). */
   toolTimeoutMs?: number
+  /**
+   * Optional explicit origin allowlist. Loopback origins (localhost,
+   * *.localhost, 127/8, ::1) are always allowed; every other origin must be
+   * listed here or its registration is rejected.
+   */
+  allowedOrigins?: string[]
   maxTargets?: number
   maxTargetsPerOrigin?: number
   maxFrameBytes?: number
@@ -118,6 +125,7 @@ export class ViteTargetBroker implements BrowserProvider {
   readonly kind = 'vite' as const
   private readonly coordinator: TargetCoordinator
   private readonly toolTimeoutMs: number
+  private readonly allowedOrigins: Set<string>
   private readonly maxTargets: number
   private readonly maxTargetsPerOrigin: number
   private readonly maxFrameBytes: number
@@ -140,6 +148,7 @@ export class ViteTargetBroker implements BrowserProvider {
   constructor(options: ViteBrokerOptions) {
     this.coordinator = options.coordinator
     this.toolTimeoutMs = options.toolTimeoutMs ?? 60_000
+    this.allowedOrigins = new Set(options.allowedOrigins ?? [])
     this.maxTargets = options.maxTargets ?? MAX_VITE_TARGETS
     this.maxTargetsPerOrigin = options.maxTargetsPerOrigin ?? MAX_VITE_TARGETS_PER_ORIGIN
     this.maxFrameBytes = options.maxFrameBytes ?? MAX_VITE_FRAME_BYTES
@@ -262,9 +271,15 @@ export class ViteTargetBroker implements BrowserProvider {
   /** Provider-role revocation: notify the page and settle its pending calls. */
   revoke(target: TargetBinding, grantId: GrantId): void {
     const liveTarget = this.live.get(target.connectionId)
-    if (liveTarget === undefined || liveTarget.binding.logicalKey !== target.logicalKey) return
-    liveTarget.socket.send(JSON.stringify({ v: VITE_PAGE_PROTOCOL_VERSION, type: 'target.revoke' }))
-    this.settleGrant(liveTarget.pending, grantId)
+    if (liveTarget !== undefined && liveTarget.binding.logicalKey === target.logicalKey) {
+      liveTarget.socket.send(JSON.stringify({ v: VITE_PAGE_PROTOCOL_VERSION, type: 'target.revoke' }))
+      this.settleGrant(liveTarget.pending, grantId)
+    }
+    // A disconnected target keeps its unaccepted reads in the reconnect
+    // tombstone; a revoked grant must settle there too, so a rebind can
+    // never retry the work of a dead grant.
+    const tombstone = this.tombstones.get(target.logicalKey)
+    if (tombstone !== undefined) this.settleGrant(tombstone.pending, grantId)
   }
 
   // --- Connection lifecycle --------------------------------------------------
@@ -441,6 +456,13 @@ export class ViteTargetBroker implements BrowserProvider {
       this.fail(socket, 'permission_denied', 'vite target origin does not match the connection origin')
       return
     }
+    // Remote pages are not targets: by default only loopback origins may
+    // register (dev servers, local production fixtures). Anything else must
+    // be explicitly listed in the broker allowlist.
+    if (!this.allowedOrigins.has(target.origin) && !isLoopbackDshOrigin(target.origin)) {
+      this.fail(socket, 'permission_denied', 'vite target origin is not loopback or allowed')
+      return
+    }
     const key = keyOf(target.targetId, target.origin)
     const existing = this.liveByKey.get(key)
     if (existing !== undefined) {
@@ -535,7 +557,9 @@ export class ViteTargetBroker implements BrowserProvider {
       type: 'target.registered',
       targetId: target.targetId,
     }))
-    // A legal rebind retries each unaccepted read exactly once.
+    // A legal rebind retries each unaccepted read exactly once. Calls of a
+    // revoked grant are never here: revoke() settles tombstone pendings by
+    // grantId before any rebind can pick them up.
     for (const call of [...pending.values()]) {
       if (call.retried || !isReadOperation(call.operation)) continue
       call.retried = true

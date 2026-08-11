@@ -173,6 +173,13 @@ export function createViteRoutes(options: ViteRoutesOptions): { register(httpSer
       const offWs = httpServer.registerUpgrade({
         path: VITE_WS_PATH,
         handler: (req, socket, head) => {
+          // DNS-rebinding guard, consistent with /targets and /grants: the
+          // handshake must arrive at a loopback-local DSH origin. Without
+          // it a page could reach this route through a rebound hostname.
+          if (localDshOriginOf(req) === '') {
+            ;(socket as { destroy(): void }).destroy()
+            return
+          }
           const origin = req.headers.origin ?? ''
           wss.handleUpgrade(req, socket as never, head, ws => {
             attachViteWebSocket(broker, ws, origin)
