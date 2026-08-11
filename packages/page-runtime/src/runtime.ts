@@ -13,6 +13,7 @@ import {
 import { Activator } from './activation.ts'
 import { normalizeDshOrigin, type PageRuntimeConfig } from './config.ts'
 import { createHmrManager } from './hmr.ts'
+import { createPanel } from './panel/panel.ts'
 import { GENERATION_KEY, loadOrCreateIdentity } from './identity.ts'
 import { probeLocalDsh } from './probe.ts'
 import { ElementRegistry } from './refs/registry.ts'
@@ -148,12 +149,27 @@ export function startPageRuntime(config: PageRuntimeConfig): PageRuntime {
     socket.onRevoke(() => consoleCapture.clear())
   }
 
+  // Optional Shadow DOM panel: enabled=false creates no UI while the
+  // bridge activation pipeline keeps running.
+  const panel = createPanel({
+    config,
+    targetId: identity.targetId,
+    dshOrigin,
+    onActivate: () => activator?.userActivate({ openPanel: true }),
+  })
+
   activator = new Activator({
     config,
     probe: () => probeLocalDsh({ dshOrigin }),
     connect,
-    openPanel: () => {
-      // The Shadow DOM panel is wired in a later task.
+    openPanel: () => panel?.open(),
+    onState: state => {
+      // visible=true shows the launcher only after a successful probe; a
+      // connected bridge updates the drawer banner.
+      if (state === 'available') panel?.showLauncher()
+      if (state === 'failed') panel?.setConnection('failed')
+      if (state === 'connecting') panel?.setConnection('connecting')
+      if (state === 'connected') panel?.setConnection('connected')
     },
     storage,
     location: window.location,
@@ -180,6 +196,7 @@ export function startPageRuntime(config: PageRuntimeConfig): PageRuntime {
     dispose: () => {
       activator?.dispose()
       hmr.dispose()
+      panel?.dispose()
       consoleCapture.dispose()
       socket?.close()
       socket = null

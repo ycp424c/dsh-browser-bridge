@@ -16,6 +16,8 @@ export {
   type ActivationState,
   type KeyEventLike,
 } from './activation.ts'
+export { PanelChannel, type PanelChannelEnv } from './panel/channel.ts'
+export { createPanel, PANEL_HOST_ID, type Panel, type PanelConnectionState } from './panel/panel.ts'
 export {
   clearIdentity,
   loadOrCreateIdentity,

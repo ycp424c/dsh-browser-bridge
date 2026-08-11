@@ -96,8 +96,7 @@ export class Activator {
       return
     }
     if (this.hasQueryActivation(config)) {
-      this.persistActivation()
-      void this.activate({ openPanel: config.panel.enabled })
+      this.userActivate({ openPanel: config.panel.enabled })
       return
     }
     if (config.bridge.autoConnectInBuild) {
@@ -118,8 +117,16 @@ export class Activator {
   /** Public key event entry (shortcut activation). */
   handleKey(event: KeyEventLike): void {
     if (this.disposed || !matchesShortcut(event, this.shortcut)) return
+    this.userActivate()
+  }
+
+  /**
+   * Explicit user activation (launcher, shortcut, query): persists the
+   * local activation switch and runs the probe/connect/open-panel pipeline.
+   */
+  userActivate(options: { openPanel?: boolean } = {}): void {
     this.persistActivation()
-    void this.activate({ openPanel: this.options.config.panel.enabled })
+    void this.activate({ openPanel: options.openPanel ?? this.options.config.panel.enabled })
   }
 
   /** Probe, connect/register, and open the panel when requested. */
