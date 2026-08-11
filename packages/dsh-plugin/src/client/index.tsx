@@ -5,7 +5,7 @@
  * extension when the bridge asks for one.
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
-// Type-only: pulls the SlotMap declaration for `conversation.input.left`.
+// Type-only: pulls the SlotMap declaration for `conversation.input.dock`.
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/src/client/contract/slots.ts'
 import { CurrentTabButton, type CurrentTabButtonInjected } from './CurrentTabButton.tsx'
 import { channelFromWindow } from './extension-channel.ts'
@@ -53,10 +53,14 @@ export function apply(ctx: ClientContext): void {
     const offSource = ctx.slash.registerSource(createTabSource(channel, store))
     const offSlot = ctx.inject(['slots', 'sessions'], (scope: ClientContext) => {
       const sessions = scope.sessions
-      return scope.slots.inject('conversation.input.left', () => scope.slots.register({
-        name: 'conversation.input.left',
+      // The official `conversation.input.dock` strip above the input card
+      // (rendered in both the blank hero and active conversations). Order 30
+      // sorts after the host's Todo(0)/Goal(10)/Queue(20) rows, so the button
+      // is the entry closest to the input card.
+      return scope.slots.inject('conversation.input.dock', () => scope.slots.register({
+        name: 'conversation.input.dock',
         id: 'dsh-browser-bridge-current-tab',
-        order: 10,
+        order: 30,
         inject: (sessionId): CurrentTabButtonInjected => {
           const actx = sessions.scope(sessionId)
           if (actx === undefined) throw new Error('dsh-browser-bridge: session scope missing')

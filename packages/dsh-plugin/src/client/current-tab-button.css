@@ -1,6 +1,32 @@
 /* Current-tab attachment button. Uses DSH CSS variables; no shadcn in the
    host page. */
 
+/* Input-dock row: a direct child of the host's `.composerStack` above the
+   input card. Box-sizing must be border-box: the row is width:100% with
+   horizontal padding, and the host has no global box-sizing reset, so the
+   content-box default would widen the row past the stack by both side
+   clearances. The box replicates the InputBar wrapper geometry (card cap +
+   both side clearances, centered) so the button's left edge stays exactly
+   flush with the input card's left edge at every viewport width. */
+.dsh-bb-current-tab-row {
+  box-sizing: border-box;
+  display: flex;
+  width: 100%;
+  max-width: calc(var(--dsh-composer-card-max-width) + 2 * var(--dsh-composer-side-clearance));
+  margin: 0 auto;
+  padding: 0 var(--dsh-composer-side-clearance);
+}
+
+/* Hero phase: the host's `.composerHero` overrides the stack gap to 12px
+   (its 6px --dsh-composer-stack-gap variable is untouched there), so the
+   measured row-to-card gap would be 12px instead of the approved 6px. Pull
+   the extra 6px back with a negative bottom margin on this row — normal
+   flow, no absolute positioning — so hero and active both measure exactly
+   6px. */
+[data-phase='hero'] .dsh-bb-current-tab-row {
+  margin-bottom: calc(var(--dsh-composer-stack-gap) - 12px);
+}
+
 .dsh-bb-current-tab {
   display: inline-flex;
   align-items: center;

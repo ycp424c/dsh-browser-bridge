@@ -71,15 +71,17 @@ export function CurrentTabButton({ session, input, actx, channel, store }: Curre
   }
 
   return (
-    <button
-      type="button"
-      className="dsh-bb-current-tab"
-      title="Attach current tab"
-      disabled={frozen || pending}
-      onClick={() => { void attach() }}
-    >
-      @当前标签页
-      {error !== null && <span className="dsh-bb-current-tab-error">{error}</span>}
-    </button>
+    <div className="dsh-bb-current-tab-row">
+      <button
+        type="button"
+        className="dsh-bb-current-tab"
+        title="Attach current tab"
+        disabled={frozen || pending}
+        onClick={() => { void attach() }}
+      >
+        @当前标签页
+        {error !== null && <span className="dsh-bb-current-tab-error">{error}</span>}
+      </button>
+    </div>
   )
 }

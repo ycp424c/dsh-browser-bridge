@@ -21,6 +21,7 @@
     "src/client/**/*.tsx",
     "tests/client-channel.spec.ts",
     "tests/tab-source.spec.ts",
-    "tests/current-tab-button.spec.tsx"
+    "tests/current-tab-button.spec.tsx",
+    "tests/client-apply.spec.tsx"
   ]
 }
