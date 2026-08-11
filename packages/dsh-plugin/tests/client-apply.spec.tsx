@@ -80,7 +80,7 @@ describe('client apply', () => {
     const fiber = ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
 
-    const names = slash.registerSource.mock.calls.map(call => (call[0] as { name: string }).name)
+    const names = (slash.registerSource as ReturnType<typeof vi.fn>).mock.calls.map(call => (call[0] as { name: string }).name)
     expect(names).toContain('vite-pages')
     expect(names).not.toContain('browser-tabs')
     await fiber.dispose()
@@ -134,7 +134,7 @@ describe('client apply', () => {
     const fiber = ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
 
-    const calls = slash.registerSource.mock.calls.map(call => call[0] as { name?: string; order?: number })
+    const calls = (slash.registerSource as ReturnType<typeof vi.fn>).mock.calls.map(call => call[0] as { name?: string; order?: number })
     expect(calls.map(call => call.name)).toContain('vite-pages')
     const source = calls.find(call => call.name === 'browser-tabs')!
     expect(source).toMatchObject({ name: 'browser-tabs', order: -20 })

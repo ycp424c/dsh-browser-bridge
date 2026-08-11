@@ -43,7 +43,7 @@ describe('browser-tabs source', () => {
   it('lists eligible tabs with human-readable duplicate-title names', async () => {
     const channel = new FakeChannel()
     channel.replies.set('tabs.list', TABS)
-    const store = new ReferenceStore()
+    const store = new ReferenceStore<TabDescriptor>()
     const source = createTabSource(channel as unknown as ExtensionChannel, store)
     expect(source.trigger).toBe('@')
     expect(source.name).toBe('browser-tabs')
@@ -60,7 +60,7 @@ describe('browser-tabs source', () => {
     const channel = new FakeChannel()
     channel.replies.set('tabs.list', TABS)
     channel.replies.set('grant.create', { handle: 'h'.repeat(32) })
-    const store = new ReferenceStore()
+    const store = new ReferenceStore<TabDescriptor>()
     const source = createTabSource(channel as unknown as ExtensionChannel, store)
     const candidates = await source.candidates({ sessionId: s('s1') }, request(''))
     const outcome = source.onPick(pick(candidates[0]!))
@@ -76,7 +76,7 @@ describe('browser-tabs source', () => {
     const channel = new FakeChannel()
     channel.replies.set('tabs.list', TABS)
     channel.replies.set('grant.create', new Error('tab closed'))
-    const source = createTabSource(channel as unknown as ExtensionChannel, new ReferenceStore())
+    const source = createTabSource(channel as unknown as ExtensionChannel, new ReferenceStore<TabDescriptor>())
     const candidates = await source.candidates({ sessionId: s('s1') }, request(''))
     const outcome = source.onPick(pick(candidates[0]!))
     const ref = (outcome as { insert: { ref: string } }).insert.ref
@@ -86,7 +86,7 @@ describe('browser-tabs source', () => {
   it('binds the reference to the session that picked it', async () => {
     const channel = new FakeChannel()
     channel.replies.set('tabs.list', TABS)
-    const store = new ReferenceStore()
+    const store = new ReferenceStore<TabDescriptor>()
     const source = createTabSource(channel as unknown as ExtensionChannel, store)
     const candidates = await source.candidates({ sessionId: s('s1') }, request(''))
     const outcome = source.onPick(pick(candidates[0]!))
@@ -97,7 +97,7 @@ describe('browser-tabs source', () => {
 
   it('evicts stale references and caps entries per session', () => {
     let now = 1_000
-    const store = new ReferenceStore({ now: () => now, maxEntries: 2, maxAgeMs: 10 * 60_000 })
+    const store = new ReferenceStore<TabDescriptor>({ now: () => now, maxEntries: 2, maxAgeMs: 10 * 60_000 })
     const a = store.allocate(s('s1'), TABS[0]!, 'Dashboard')
     const b = store.allocate(s('s1'), TABS[1]!, 'Dashboard')
     store.allocate(s('s1'), TABS[2]!, 'Dashboard')

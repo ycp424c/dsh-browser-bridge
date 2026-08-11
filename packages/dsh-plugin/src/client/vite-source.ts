@@ -11,7 +11,7 @@ import type {
   SlashCandidate,
   SlashPick,
   SlashSource,
-} from '@dsh-external/dsh-client-ui-slash/src/types.ts'
+} from '@deepseek-ai/dsh-client-ui-slash/src/types.ts'
 import { encodeMarker, type BrowserTargetDescriptor } from '@dsh-external/dsh-browser-bridge-protocol'
 import type { ViteTargetApi } from './vite-api.ts'
 import { ReferenceStore } from './reference-store.ts'
