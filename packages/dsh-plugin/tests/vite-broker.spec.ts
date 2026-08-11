@@ -389,3 +389,87 @@ describe('vite target broker', () => {
     expect(binding.descriptor.provider).toBe('vite')
   })
 })
+
+describe('vite target broker review fixes', () => {
+  afterEach(() => {
+    for (const broker of createdBrokers.splice(0)) broker.dispose()
+    vi.useRealTimers()
+  })
+
+  it('locks the registered identity: target.update cannot change targetId or origin', () => {
+    const fixture = makeFixture()
+    const { registerPageChecked } = fixture
+    const socket = new FakeSocket()
+    const { binding } = registerPageChecked(socket)
+    const updated = { ...binding.descriptor, title: 'New Title' }
+    sendPageFrame(socket, {
+      v: VITE_PAGE_PROTOCOL_VERSION,
+      type: 'target.update',
+      target: updated,
+    })
+    expect(socket.closed).toBe(false)
+    expect(fixture.broker.liveTargets()[0]!.title).toBe('New Title')
+    // Identity drift in either field closes the connection.
+    for (const tampered of [
+      { ...binding.descriptor, origin: 'https://other.example', url: 'https://other.example/' },
+      { ...binding.descriptor, targetId: 'x'.repeat(43) },
+    ]) {
+      const other = new FakeSocket()
+      registerPageChecked(other, { targetId: binding.descriptor.targetId, origin: binding.descriptor.origin })
+      sendPageFrame(other, {
+        v: VITE_PAGE_PROTOCOL_VERSION,
+        type: 'target.update',
+        target: tampered,
+      })
+      expect(other.closed).toBe(true)
+    }
+  })
+
+  it('never dispatches a tool.call for an already-aborted request', async () => {
+    const { registerPageChecked, offerGrant, coordinator } = makeFixture()
+    const socket = new FakeSocket()
+    const { targetId } = registerPageChecked(socket)
+    const grantId = offerGrant(targetId)
+    const controller = new AbortController()
+    controller.abort(new Error('cancelled'))
+    await expect(coordinator.request(grantId, 'act', { action: { kind: 'click', selector: '#x' } }, controller.signal))
+      .rejects.toThrow('cancelled')
+    expect(socket.frames().filter(frame => frame.type === 'tool.call')).toHaveLength(0)
+  })
+
+  it('times out a call the page never answers and emits one tool.cancel', async () => {
+    vi.useFakeTimers()
+    const grants = new GrantStore()
+    const registry = new ProviderRegistry()
+    const coordinator = new TargetCoordinator({ providers: registry, grants })
+    const broker = new ViteTargetBroker({ coordinator, toolTimeoutMs: 50 })
+    registry.register(broker)
+    createdBrokers.push(broker)
+    const socket = new FakeSocket()
+    broker.attach(socket, ORIGIN)
+    socket.receive(JSON.stringify({ v: VITE_PAGE_PROTOCOL_VERSION, type: 'hello' }))
+    socket.receive(JSON.stringify({
+      v: VITE_PAGE_PROTOCOL_VERSION,
+      type: 'target.register',
+      target: {
+        targetId: 't'.repeat(43),
+        provider: 'vite',
+        title: 'Vite Page',
+        url: 'http://127.0.0.1:5173/',
+        origin: ORIGIN,
+        projectId: 'app',
+        generation: 0,
+        capabilities: ['observe', 'inspect', 'act', 'navigate', 'wait', 'console'],
+      },
+    }))
+    const binding = broker.bindingFor('t'.repeat(43) as never)!
+    const grantId = coordinator.offer({ sessionId: 's', expiresAt: Date.now() + 60_000, target: binding }).grantId
+    const pending = coordinator.request(grantId, 'observe', {}, new AbortController().signal)
+    vi.advanceTimersByTime(60)
+    await expect(pending).rejects.toMatchObject({ code: 'timeout' })
+    const cancels = socket.frames().filter(frame => frame.type === 'tool.cancel')
+    expect(cancels).toHaveLength(1)
+    expect(cancels[0]).toMatchObject({ reason: 'timeout' })
+    vi.useRealTimers()
+  })
+})

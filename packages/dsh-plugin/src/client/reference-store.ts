@@ -29,7 +29,8 @@ export class ReferenceStore<T> {
 
   constructor(options: ReferenceStoreOptions = {}) {
     this.now = options.now ?? Date.now
-    this.maxEntries = options.maxEntries ?? 100
+    // A zero or negative cap would loop forever in the eviction while.
+    this.maxEntries = Math.max(1, options.maxEntries ?? 100)
     this.maxAgeMs = options.maxAgeMs ?? 10 * 60_000
   }
 

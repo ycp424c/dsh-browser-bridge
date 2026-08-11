@@ -39,6 +39,11 @@ export const COMPUTED_STYLE_ALLOWLIST = [
   'lineHeight', 'textAlign', 'overflow', 'cursor', 'pointerEvents', 'transform',
 ] as const
 
+/** CSSOM getPropertyValue only accepts kebab-case property names. */
+function toKebabCase(name: string): string {
+  return name.replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`)
+}
+
 export function inspectElement(ctx: InspectContext): InspectResult {
   const doc = ctx.doc ?? document
   const win = ctx.win ?? window
@@ -79,7 +84,7 @@ export function inspectElement(ctx: InspectContext): InspectResult {
   const computedStyle: Record<string, string> = {}
   for (const name of COMPUTED_STYLE_ALLOWLIST) {
     if (!requested.has(name)) continue
-    computedStyle[name] = boundField(win.getComputedStyle(element).getPropertyValue(name))
+    computedStyle[name] = boundField(win.getComputedStyle(element).getPropertyValue(toKebabCase(name)))
   }
 
   const rect = element.getBoundingClientRect()

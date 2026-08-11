@@ -4,8 +4,12 @@
  * target.update, and wakes every generation waiter. Generation waits fail
  * with unsupported_operation when HMR is unavailable (production).
  */
+import { bridgeError } from '@dsh-external/dsh-browser-bridge-protocol'
 import { bridgeFailure } from './tools/dispatcher.ts'
 import type { ElementRegistry } from './refs/registry.ts'
+
+/** Bounded budget of one generation wait (default 30s). */
+export const GENERATION_WAIT_TIMEOUT_MS = 30_000
 
 export interface HmrManagerOptions {
   refs: ElementRegistry
@@ -19,6 +23,8 @@ export interface HmrManagerOptions {
   /** Bounded DOM quiet window after an update (default 200ms). */
   quietMs?: number
   timeoutMs?: number
+  /** Bounded generation-wait budget (default 30s). */
+  generationWaitTimeoutMs?: number
   notifyHmrUpdate: () => void
 }
 
@@ -44,6 +50,7 @@ export function createHmrManager(options: HmrManagerOptions): HmrManager {
   const quietMs = options.quietMs ?? 200
   const timeoutMs = options.timeoutMs ?? 5_000
   const waiters = new Set<GenerationWaiter>()
+  const generationWaitTimeoutMs = options.generationWaitTimeoutMs ?? GENERATION_WAIT_TIMEOUT_MS
   let disposed = false
 
   const wakeWaiters = (generation: number): void => {
@@ -103,12 +110,14 @@ export function createHmrManager(options: HmrManagerOptions): HmrManager {
     }
     if (options.generation() > after) return Promise.resolve(options.generation())
     return new Promise<number>((resolve, reject) => {
+      let timer: ReturnType<typeof setTimeout> | null = null
       const waiter: GenerationWaiter = {
         after,
         signal,
         resolve,
         reject,
         finish: () => {
+          if (timer !== null) clearTimeout(timer)
           signal.removeEventListener('abort', onAbort)
           waiters.delete(waiter)
         },
@@ -119,6 +128,11 @@ export function createHmrManager(options: HmrManagerOptions): HmrManager {
       }
       signal.addEventListener('abort', onAbort, { once: true })
       waiters.add(waiter)
+      // Bounded: a generation wait can never outlive its budget.
+      timer = setTimeout(() => {
+        waiter.finish()
+        reject(bridgeError('timeout', 'generation wait timed out', true))
+      }, generationWaitTimeoutMs)
     })
   }
 

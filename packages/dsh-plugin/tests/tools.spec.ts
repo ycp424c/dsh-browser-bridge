@@ -101,7 +101,11 @@ describe('browser tool definitions', () => {
     const parameters = wait.parameters as { properties: { condition: { oneOf: Array<{ properties: { kind: { const: string } } }> } }; required: string[] }
     expect(parameters.required).toContain('condition')
     const kinds = parameters.properties.condition.oneOf.map(schema => schema.properties.kind.const)
-    expect(kinds).toEqual(['selector', 'text', 'url', 'ready', 'stable'])
+    expect(kinds).toEqual(['selector', 'text', 'url', 'ready', 'stable', 'generation'])
+    const generation = parameters.properties.condition.oneOf.find(schema => schema.properties.kind.const === 'generation')!
+    expect(JSON.stringify(generation)).toContain('"after"')
+    expect(JSON.stringify(generation)).toContain('"integer"')
+    expect(JSON.stringify(generation)).toContain('"required":["kind","after"]')
   })
 
   it('declares reads concurrency-safe and writes exclusive', () => {

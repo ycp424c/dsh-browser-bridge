@@ -293,8 +293,9 @@ test.describe('vite provider browser flows', () => {
         entry.targetId === targetB.targetId && entry.frame.type === 'tool.call')).toBe(false)
 
       await react.harness.call(targetB.targetId, 'observe', {})
+      // A page never sends host-shaped frames to ITS harness either.
       expect(vanilla.harness.allFrames().some(entry =>
-        entry.targetId === targetA.targetId && entry.frame.type === 'tool.call' && entry.frame.operation === 'observe' && false)).toBe(false)
+        entry.targetId === targetA.targetId && entry.frame.type === 'tool.call')).toBe(false)
       await pageA.close()
       await pageB.close()
     } finally {

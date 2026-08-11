@@ -297,6 +297,7 @@ const TOOL_BUILDERS: Record<BrowserOperation, ToolBuilder> = {
               { type: 'object', properties: { kind: { const: 'url' }, pattern: { type: 'string' } }, required: ['kind', 'pattern'] },
               { type: 'object', properties: { kind: { const: 'ready' }, state: { enum: ['interactive', 'complete'] } }, required: ['kind', 'state'] },
               { type: 'object', properties: { kind: { const: 'stable' }, quietMs: { type: 'integer', minimum: 50, maximum: 10_000 } }, required: ['kind', 'quietMs'] },
+              { type: 'object', properties: { kind: { const: 'generation' }, after: { type: 'integer', minimum: 0 } }, required: ['kind', 'after'] },
             ],
           },
         },

@@ -73,17 +73,29 @@ function checkCondition(ctx: WaitContext): boolean {
 }
 
 async function poll(ctx: WaitContext): Promise<void> {
-  while (!ctx.signal.aborted) {
-    if (checkCondition(ctx)) return
-    await new Promise<void>(resolve => {
-      const timer = setTimeout(resolve, POLL_INTERVAL_MS)
-      ctx.signal.addEventListener('abort', () => {
-        clearTimeout(timer)
-        resolve()
-      }, { once: true })
-    })
+  // One abort listener for the whole wait, not one per poll iteration.
+  let wake: (() => void) | null = null
+  const onAbort = (): void => wake?.()
+  ctx.signal.addEventListener('abort', onAbort, { once: true })
+  try {
+    while (!ctx.signal.aborted) {
+      if (checkCondition(ctx)) return
+      await new Promise<void>(resolve => {
+        const timer = setTimeout(() => {
+          wake = null
+          resolve()
+        }, POLL_INTERVAL_MS)
+        wake = () => {
+          clearTimeout(timer)
+          wake = null
+          resolve()
+        }
+      })
+    }
+    throw ctx.signal.reason
+  } finally {
+    ctx.signal.removeEventListener('abort', onAbort)
   }
-  throw ctx.signal.reason
 }
 
 function waitForDomQuiet(ctx: WaitContext): Promise<void> {

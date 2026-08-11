@@ -48,6 +48,8 @@ export interface ViteSocket {
 
 export interface ViteBrokerOptions {
   coordinator: TargetCoordinator
+  /** Bounded per-call timeout; on expiry a tool.cancel is sent (default 60s). */
+  toolTimeoutMs?: number
   maxTargets?: number
   maxTargetsPerOrigin?: number
   maxFrameBytes?: number
@@ -72,6 +74,8 @@ interface PendingViteCall {
   /** The call already consumed its one retry after a legal rebind. */
   retried: boolean
   cancelSent: boolean
+  /** Bounded per-call timeout timer. */
+  timer: ReturnType<typeof setTimeout> | null
 }
 
 interface LiveViteTarget {
@@ -113,6 +117,7 @@ export function attachViteWebSocket(broker: ViteTargetBroker, socket: { send(dat
 export class ViteTargetBroker implements BrowserProvider {
   readonly kind = 'vite' as const
   private readonly coordinator: TargetCoordinator
+  private readonly toolTimeoutMs: number
   private readonly maxTargets: number
   private readonly maxTargetsPerOrigin: number
   private readonly maxFrameBytes: number
@@ -134,6 +139,7 @@ export class ViteTargetBroker implements BrowserProvider {
 
   constructor(options: ViteBrokerOptions) {
     this.coordinator = options.coordinator
+    this.toolTimeoutMs = options.toolTimeoutMs ?? 60_000
     this.maxTargets = options.maxTargets ?? MAX_VITE_TARGETS
     this.maxTargetsPerOrigin = options.maxTargetsPerOrigin ?? MAX_VITE_TARGETS_PER_ORIGIN
     this.maxFrameBytes = options.maxFrameBytes ?? MAX_VITE_FRAME_BYTES
@@ -186,6 +192,9 @@ export class ViteTargetBroker implements BrowserProvider {
     if (liveTarget.pending.size >= this.maxConcurrentCalls) {
       throw bridgeError('timeout', `vite target busy: ${this.maxConcurrentCalls} concurrent calls`, true)
     }
+    // A request that was already cancelled must never reach the page: a
+    // write could otherwise execute after the turn ended.
+    if (signal.aborted) throw signal.reason
     const grantId = this.coordinator.grantIdFor(requestId)
     if (grantId === undefined) {
       throw bridgeError('internal', 'request without a bound grant', false)
@@ -202,9 +211,11 @@ export class ViteTargetBroker implements BrowserProvider {
         accepted: false,
         retried: false,
         cancelSent: false,
+        timer: null,
       }
       const finish = () => {
         signal.removeEventListener('abort', onAbort)
+        if (pending.timer !== null) clearTimeout(pending.timer)
         liveTarget.pending.delete(pending.requestId)
       }
       pending.finish = finish
@@ -223,6 +234,20 @@ export class ViteTargetBroker implements BrowserProvider {
         reject(bridgeError('target_disconnected', 'vite browser call cancelled', false))
       }
       signal.addEventListener('abort', onAbort, { once: true })
+      pending.timer = setTimeout(() => {
+        // Bounded per-call timeout: one correlated tool.cancel, then settle.
+        if (!pending.cancelSent) {
+          pending.cancelSent = true
+          liveTarget.socket.send(JSON.stringify({
+            v: VITE_PAGE_PROTOCOL_VERSION,
+            type: 'tool.cancel',
+            requestId: pending.requestId,
+            reason: 'timeout',
+          }))
+        }
+        finish()
+        reject(bridgeError('timeout', `${operation} timed out`, true))
+      }, this.toolTimeoutMs)
       liveTarget.pending.set(requestId, pending)
       liveTarget.socket.send(JSON.stringify({
         v: VITE_PAGE_PROTOCOL_VERSION,
@@ -351,6 +376,15 @@ export class ViteTargetBroker implements BrowserProvider {
       case 'pong':
         return
       case 'target.update': {
+        // The registered identity is immutable: a page can refresh title,
+        // url, project id, generation, or capabilities, but never its
+        // targetId or origin. Identity drift would corrupt grant bindings
+        // and bypass the origin-change revocation.
+        if (frame.target.targetId !== target.binding.descriptor.targetId
+          || frame.target.origin !== target.binding.descriptor.origin) {
+          this.closeConnection(socket)
+          return
+        }
         try {
           target.binding.descriptor = sanitizeViteTarget(frame.target)
         } catch {
@@ -401,8 +435,9 @@ export class ViteTargetBroker implements BrowserProvider {
       return
     }
     // The browser never lets a page open a WebSocket from another origin;
-    // enforce the recorded origin against the WS handshake origin too.
-    if (origin !== '' && origin !== target.origin) {
+    // the recorded origin must match the WS handshake origin exactly (a
+    // missing Origin header is rejected too — browsers always send one).
+    if (origin !== target.origin) {
       this.fail(socket, 'permission_denied', 'vite target origin does not match the connection origin')
       return
     }

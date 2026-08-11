@@ -62,6 +62,14 @@ describe('inspect element', () => {
     expect(inspected.computedStyle['evil-property']).toBeUndefined()
   })
 
+  it('resolves multi-word computed properties via kebab-case names', () => {
+    setupFixture('<div id="box" style="font-size: 16px; background-color: rgb(1, 2, 3)">x</div>')
+    const { inspect } = makeContext()
+    const inspected = inspect({ selector: '#box', properties: ['fontSize', 'backgroundColor'] }) as InspectResult
+    expect(inspected.computedStyle.fontSize).toBe('16px')
+    expect(inspected.computedStyle.backgroundColor).toBe('rgb(1, 2, 3)')
+  })
+
   it('rejects ambiguous missing inputs', () => {
     const { inspect } = makeContext()
     expect(() => inspect({})).toThrow()

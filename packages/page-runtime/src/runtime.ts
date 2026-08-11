@@ -82,6 +82,9 @@ export function startPageRuntime(config: PageRuntimeConfig): PageRuntime {
     setGeneration: value => {
       generation = value
       generationState.value = value
+      // The persisted generation survives reloads; the HMR manager owns
+      // the increment so there is exactly one bump per update.
+      storage.setItem(GENERATION_KEY, String(value))
     },
     sendTargetUpdate: current => {
       socket?.send({
@@ -192,11 +195,8 @@ export function startPageRuntime(config: PageRuntimeConfig): PageRuntime {
     activate: options => activator!.activate(options),
     notifyHmrUpdate: () => {
       // The generation bump, ref clear, quiet wait, target.update, and
-      // generation waiters all live in the HMR manager; the persisted
-      // generation survives reloads.
-      generation += 1
-      generationState.value = generation
-      storage.setItem(GENERATION_KEY, String(generation))
+      // generation waiters all live in the HMR manager (one increment per
+      // update, persisted through setGeneration).
       hmr.notifyHmrUpdate()
     },
     dispose: () => {

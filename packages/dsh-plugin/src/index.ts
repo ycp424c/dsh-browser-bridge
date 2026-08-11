@@ -64,6 +64,7 @@ export function apply(ctx: Context, config: ConfigShape): void {
   const server = new BridgeServer({ pairing, coordinator, toolTimeoutMs: resolved.toolTimeoutMs })
   const broker = new ViteTargetBroker({
     coordinator,
+    toolTimeoutMs: resolved.toolTimeoutMs,
     maxTargets: resolved.viteMaxTargets,
     maxTargetsPerOrigin: resolved.viteMaxTargetsPerOrigin,
     maxFrameBytes: resolved.viteMaxFrameBytes,
