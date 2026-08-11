@@ -23,16 +23,16 @@
     "README.md",
     "LICENSE"
   ],
-  "dshClient": {
-    "inject": [
-      "@deepseek-ai/dsh-client-runtime",
-      "@deepseek-ai/dsh-client-ui-slash",
-      "@deepseek-ai/dsh-client-ui-conversation",
-      "@deepseek-ai/dsh-client-ui-slots"
-    ],
-    "platform": "web"
-  },
   "dsh": {
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-ui-slash",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-slots"
+      ],
+      "platform": "web"
+    },
     "bundle": {
       "patch": "./cordis.patch.yml"
     }
@@ -48,6 +48,7 @@
   },
   "peerDependencies": {
     "@deepseek-ai/dsh-agent": "^0.0.1",
+    "@deepseek-ai/dsh-attachment": "^0.0.1",
     "@deepseek-ai/dsh-session": "^0.0.1",
     "@deepseek-ai/dsh-tools": "^0.0.1"
   },
@@ -56,6 +57,7 @@
     "@cordisjs/plugin-loader": "link:../../.dsh/source/current/vendor/loader",
     "@deepseek-ai/dsh-agent": "link:../../.dsh/source/current/packages/core/agent",
     "@deepseek-ai/dsh-agent-loop": "link:../../.dsh/source/current/packages/core/agent-loop",
+    "@deepseek-ai/dsh-attachment": "link:../../.dsh/source/current/packages/attachment/attachment",
     "@deepseek-ai/dsh-client-runtime": "link:../../.dsh/source/current/packages/client/runtime",
     "@deepseek-ai/dsh-client-ui-conversation": "link:../../.dsh/source/current/packages/client/ui-conversation",
     "@deepseek-ai/dsh-client-ui-slash": "link:../../.dsh/source/current/packages/client/ui-slash",

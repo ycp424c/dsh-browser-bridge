@@ -6,7 +6,10 @@ export const DEFAULT_DSH_ORIGIN = 'http://127.0.0.1:3080'
 
 export const DSH_ORIGIN_STORAGE_KEY = 'dshOrigin'
 
-const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]', '::1'])
+// Chrome accepts wildcard-port extension CSP sources for these loopback hosts.
+// IPv6 loopback cannot be expressed with the required wildcard port, so it is
+// rejected here instead of presenting a setting that the iframe cannot load.
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost'])
 
 /**
  * Normalize a user-supplied DSH Web origin. Accepts only loopback HTTP(S)

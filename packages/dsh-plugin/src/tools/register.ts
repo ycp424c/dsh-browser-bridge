@@ -30,6 +30,7 @@ export function registerTurnTools(
   const tools = createBrowserTools({
     resolvePage: page => resolvePageAlias(turn.pages, page),
     request: (grantId, operation, args, signal) => deps.server.request(grantId, operation, args, signal),
+    attachments: agent.ctx.attachments,
   })
   return tools.map(definition => agent.ctx.tools.register(definition))
 }

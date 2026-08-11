@@ -13,6 +13,12 @@ import {
 export interface ExtensionChannelEnv {
   /** `document.referrer` of the embedding page. */
   referrer: string
+  /**
+   * Optional parent-origin candidates from `location.ancestorOrigins`
+   * (Chromium-only), checked before `referrer`. Used when the embedding page
+   * suppresses the referrer, e.g. in a sandboxed iframe.
+   */
+  ancestorOrigin?: string | string[]
   /** The parent browsing context; message `event.source` must equal it. */
   parent: object
   addMessageListener(handler: (event: MessageEvent) => void): void
@@ -71,9 +77,15 @@ export class ExtensionChannel {
   constructor(env: ExtensionChannelEnv, options: ExtensionChannelOptions = {}) {
     this.env = env
     // URL.origin is opaque for non-special schemes, so the extension origin
-    // is parsed directly from the referrer.
-    const match = /^(chrome-extension:\/\/[a-p]{32})(?:\/|$)/.exec(env.referrer)
-    if (match === null) {
+    // is parsed directly from the first candidate that matches the strict
+    // extension-origin format: `ancestorOrigin` before `referrer`.
+    const candidates = [env.ancestorOrigin, env.referrer].flatMap(candidate =>
+      candidate === undefined ? [] : typeof candidate === 'string' ? [candidate] : candidate,
+    )
+    const match = candidates
+      .map(candidate => /^(chrome-extension:\/\/[a-p]{32})(?:\/|$)/.exec(candidate))
+      .find(candidate => candidate !== null)
+    if (match === undefined) {
       throw new Error('extension channel: parent must be a chrome-extension page')
     }
     this.extensionOrigin = match[1]!
@@ -156,8 +168,12 @@ export class ExtensionChannel {
 
 /** Build the channel for the real DSH Web iframe environment. */
 export function channelFromWindow(window: Window): ExtensionChannel {
+  // Chromium-only; absent (and thus undefined) in other engines and jsdom.
+  const ancestorOrigins = window.location.ancestorOrigins as DOMStringList | undefined
+  const ancestorOrigin = ancestorOrigins?.item(0) ?? ancestorOrigins?.[0]
   return new ExtensionChannel({
     referrer: window.document.referrer,
+    ancestorOrigin: ancestorOrigin ?? undefined,
     parent: window.parent,
     addMessageListener: handler => window.addEventListener('message', handler),
     removeMessageListener: handler => window.removeEventListener('message', handler),

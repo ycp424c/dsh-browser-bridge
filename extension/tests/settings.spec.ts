@@ -17,7 +17,10 @@ describe('local DSH origin normalization', () => {
   it('accepts loopback origins and normalizes paths away', () => {
     expect(normalizeDshOrigin('http://127.0.0.1:3080/chat')).toBe('http://127.0.0.1:3080')
     expect(normalizeDshOrigin('http://localhost:3080')).toBe('http://localhost:3080')
-    expect(normalizeDshOrigin(' http://[::1]:3080/ ')).toBe('http://[::1]:3080')
+  })
+
+  it('rejects IPv6 loopback because Chrome cannot express its wildcard port in extension CSP', () => {
+    expect(() => normalizeDshOrigin('http://[::1]:3080/')).toThrow(/local DSH origin/)
   })
 
   it('rejects non-loopback and non-http(s) origins', () => {

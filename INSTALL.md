@@ -38,7 +38,7 @@ extension), and all builds. Expected artifacts:
 - `packages/protocol/lib/index.js`
 - `packages/dsh-plugin/lib/index.js`
 - `packages/dsh-plugin/lib/client.js`
-- `extension/.output/chrome-mv3/manifest.json`
+- `extension/output/chrome-mv3/manifest.json`
 
 ## 3. Run the automated Chrome coverage (optional)
 
@@ -71,9 +71,9 @@ The profile installs the **directory** `packages/dsh-plugin` (which contains
    pnpm --filter @dsh-external/dsh-browser-bridge-extension build
    pnpm --filter @dsh-external/dsh-browser-bridge-extension zip
    ```
-   The zip is written under `extension/.output/`.
+   The zip is written under `extension/output/`.
 2. Open `chrome://extensions`, enable **Developer mode**, and choose
-   **Load unpacked** with `extension/.output/chrome-mv3` (the WXT build
+   **Load unpacked** with `extension/output/chrome-mv3` (the WXT build
    output directory).
 3. Open the side panel via the toolbar action; the first screen asks for the
    local DSH Web origin (default `http://127.0.0.1:3080`). The panel embeds

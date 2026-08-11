@@ -15,6 +15,7 @@ import { BridgeServer, type BridgeSocket } from '../src/bridge/server.ts'
 import { PairingStore } from '../src/bridge/pairing-store.ts'
 import { createPreStepHandler, type PreStepHandlerDeps } from '../src/pre-step.ts'
 import { registerTurnTools } from '../src/tools/register.ts'
+import { FakeAttachments } from './fake-attachments.ts'
 
 const EXT_A = 'chrome-extension://abcdefghijklmnopabcdefghijklmnop'
 const TAB: TabDescriptor = { tabId: 7, windowId: 2, title: 'Fixture', url: 'http://127.0.0.1:4173/' }
@@ -59,7 +60,7 @@ async function stubAgent(ctx: Context, id: string): Promise<Agent> {
   // production).
   let scope!: ReturnType<typeof createScope>
   await ctx.plugin(Object.assign((inner: Context) => { scope = createScope(inner, agent) },
-    { inject: ['tools', 'systemPrompt'] }))
+    { inject: ['tools', 'systemPrompt', 'attachments'] }))
   ;(agent as unknown as { ctx: Context }).ctx = scope.ctx.extend({ agent })
   return agent
 }
@@ -112,6 +113,9 @@ async function makeFixture(): Promise<Fixture> {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRegistry)
+  // The minting inject chain (tools/systemPrompt/attachments) resolves
+  // services from the root context, mirroring the production agent loop.
+  await ctx.plugin(FakeAttachments)
   const agent = await stubAgent(ctx, 'session-a')
   const pairing = new PairingStore()
   const grants = new GrantStore()

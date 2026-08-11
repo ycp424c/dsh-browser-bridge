@@ -7,7 +7,7 @@
  *   PLAYWRIGHT_BROWSERS_PATH="$PWD/.pw-browsers" pnpm exec playwright test e2e/extension.spec.ts
  */
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { chromium, expect, test, type BrowserContext, type Page } from '@playwright/test'
@@ -17,7 +17,7 @@ import { FixtureServer } from './fixture-server.ts'
 import type { AttachedGrant } from './bridge-harness.ts'
 
 const REPO_ROOT = resolve(import.meta.dirname, '..')
-const EXTENSION_OUT = join(REPO_ROOT, 'extension/.output/chrome-mv3')
+const EXTENSION_OUT = join(REPO_ROOT, 'extension/output/chrome-mv3')
 /** `HEADED=1` forces a visible window; headless new mode also runs extensions. */
 const HEADED = process.env.HEADED === '1'
 
@@ -112,6 +112,16 @@ async function stopExtensionServiceWorker(context: BrowserContext, page: Page): 
 }
 
 test.describe('unpacked extension', () => {
+  test('emits a Chrome-valid extension CSP', () => {
+    buildExtension()
+    const manifest = JSON.parse(readFileSync(join(EXTENSION_OUT, 'manifest.json'), 'utf8')) as {
+      content_security_policy?: { extension_pages?: string }
+    }
+    const csp = manifest.content_security_policy?.extension_pages ?? ''
+    expect(csp).not.toContain('http://[::1]:*')
+    expect(csp).not.toContain('ws://[::1]:*')
+  })
+
   test('runs the development feedback loop over CDP', async () => {
     test.setTimeout(180_000)
     buildExtension()

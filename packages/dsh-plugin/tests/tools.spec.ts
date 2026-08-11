@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import { AttachmentId, type AttachmentStore, type ImageAttachmentRef, type SaveImageAttachment } from '@deepseek-ai/dsh-attachment'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import { GrantId, type BrowserOperation, type JsonValue, type TabDescriptor } from '@dsh-external/dsh-browser-bridge-protocol'
@@ -9,12 +10,22 @@ import { createBrowserTools, type BrowserToolsDeps, type PageAlias } from '../sr
 const TAB: TabDescriptor = { tabId: 7, windowId: 2, title: 'Fixture', url: 'http://127.0.0.1:4173/' }
 const TAB2: TabDescriptor = { tabId: 8, windowId: 2, title: 'Other', url: 'http://127.0.0.1:4174/' }
 
+const SHOT_REF: ImageAttachmentRef = {
+  attachmentId: AttachmentId('shot-1'),
+  mediaType: 'image/png',
+  bytes: 5,
+  width: 800,
+  height: 600,
+  name: 'browser-screenshot.png',
+}
+
 const signal = new AbortController().signal
 
 function makeDeps(
   pages: PageAlias[],
   request: (grantId: GrantId, operation: BrowserOperation, args: JsonValue, signal: AbortSignal) => Promise<JsonValue> =
     async () => ({ ok: true }),
+  saveImage: (input: SaveImageAttachment) => Promise<ImageAttachmentRef> = async () => SHOT_REF,
 ): BrowserToolsDeps {
   return {
     resolvePage: (page?: string) => {
@@ -27,6 +38,7 @@ function makeDeps(
       return target
     },
     request,
+    attachments: { saveImage } as unknown as AttachmentStore,
   }
 }
 
@@ -131,16 +143,62 @@ describe('browser tool definitions', () => {
     expect(blocks).toEqual([expect.objectContaining({ type: 'text' })])
   })
 
-  it('renders screenshots as metadata text plus an image block', () => {
+  it('renders screenshots as metadata text plus an attachment image block', () => {
     const tools = createBrowserTools(makeDeps([]))
     const screenshot = tools.find(tool => tool.name === 'browser_screenshot')!
     const blocks = screenshot.output.render({}, {
-      mimeType: 'image/png', data: 'iVBOR', url: 'http://127.0.0.1:4173/', width: 800, height: 600,
-    })
+      url: 'http://127.0.0.1:4173/', width: 800, height: 600, attachment: SHOT_REF,
+    } as never)
     expect(blocks).toEqual([
       { type: 'text', text: 'Screenshot: http://127.0.0.1:4173/ (800x600)' },
-      { type: 'image', data: 'iVBOR', mimeType: 'image/png' },
+      { type: 'image', attachment: SHOT_REF },
     ])
+  })
+
+  it('screenshot execute decodes base64 and commits via attachments.saveImage', async () => {
+    const pages: PageAlias[] = [{ alias: 'page_1', grantId: GrantId('g1'), tab: TAB }]
+    const saved: SaveImageAttachment[] = []
+    const tools = createBrowserTools(makeDeps(pages, async () => ({
+      mimeType: 'image/png',
+      data: 'aGVsbG8=',
+      url: 'http://127.0.0.1:4173/',
+      width: 800,
+      height: 600,
+    }), async input => {
+      saved.push(input)
+      return SHOT_REF
+    }))
+    const screenshot = tools.find(tool => tool.name === 'browser_screenshot')!
+    const result = await screenshot.execute({}, { signal } as never) as Record<string, unknown>
+
+    expect(saved).toHaveLength(1)
+    expect(saved[0]!.mediaType).toBe('image/png')
+    expect(saved[0]!.name).toBe('browser-screenshot.png')
+    expect(saved[0]!.data).toBeInstanceOf(Uint8Array)
+    expect(Array.from(saved[0]!.data)).toEqual([104, 101, 108, 108, 111])
+    expect(result).toEqual({ url: 'http://127.0.0.1:4173/', width: 800, height: 600, attachment: SHOT_REF })
+    // Canonical JSON carries only the durable reference — no base64 bytes.
+    const json = JSON.stringify(result)
+    expect(json).not.toContain('aGVsbG8=')
+    expect(json).not.toContain('"data"')
+  })
+
+  it('screenshot execute rejects unsupported media types before saving', async () => {
+    const pages: PageAlias[] = [{ alias: 'page_1', grantId: GrantId('g1'), tab: TAB }]
+    const saved: SaveImageAttachment[] = []
+    const tools = createBrowserTools(makeDeps(pages, async () => ({
+      mimeType: 'image/bmp',
+      data: 'aGVsbG8=',
+      url: 'http://127.0.0.1:4173/',
+      width: 800,
+      height: 600,
+    }), async input => {
+      saved.push(input)
+      return SHOT_REF
+    }))
+    const screenshot = tools.find(tool => tool.name === 'browser_screenshot')!
+    await expect(screenshot.execute({}, { signal } as never)).rejects.toThrow(/unsupported media type/)
+    expect(saved).toHaveLength(0)
   })
 
   it('tools are registerable on an agent-scoped tool registry', async () => {

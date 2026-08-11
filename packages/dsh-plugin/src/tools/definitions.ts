@@ -3,18 +3,11 @@
  * every tool optionally accepts `page` (omitted only when one page is
  * attached) and forwards `exec.signal` to the bridge request.
  */
+import { Buffer } from 'node:buffer'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import type { AttachmentStore, ImageAttachmentRef, ImageMediaType } from '@deepseek-ai/dsh-attachment'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
-
-// Screenshot evidence renders as an image block. ContentBlockMap is the
-// documented merge-extensible block vocabulary; adapters that do not know
-// 'image' treat it as an unknown block type.
-declare module '@deepseek-ai/dsh-llm/types' {
-  interface ContentBlockMap {
-    'image': { type: 'image'; data: string; mimeType: string }
-  }
-}
 import type {
   BrowserOperation,
   GrantId,
@@ -37,6 +30,8 @@ export interface BrowserToolsDeps {
     args: JsonValue,
     signal: AbortSignal,
   ): Promise<JsonValue>
+  /** Durable attachment store; screenshot bytes commit through `saveImage`. */
+  attachments: AttachmentStore
 }
 
 const PAGE_PROPERTY = {
@@ -57,35 +52,59 @@ function bridgeFailure(error: unknown): never {
 
 export const SCREENSHOT_RESULT_SCHEMA: Record<string, unknown> = {
   type: 'object',
-  required: ['mimeType', 'data', 'url', 'width', 'height'],
+  required: ['url', 'width', 'height', 'attachment'],
   properties: {
-    mimeType: { type: 'string' },
-    data: { type: 'string' },
     url: { type: 'string' },
     width: { type: 'number' },
     height: { type: 'number' },
+    attachment: {
+      type: 'object',
+      required: ['attachmentId', 'mediaType', 'bytes', 'width', 'height'],
+      properties: {
+        attachmentId: { type: 'string' },
+        mediaType: { type: 'string' },
+        bytes: { type: 'number' },
+        width: { type: 'number' },
+        height: { type: 'number' },
+        name: { type: 'string' },
+      },
+      additionalProperties: false,
+    },
   },
   additionalProperties: false,
 }
+
+const SCREENSHOT_MEDIA_TYPES: ReadonlySet<ImageMediaType> = new Set([
+  'image/png', 'image/jpeg', 'image/webp', 'image/gif',
+])
 
 const JSON_TEXT_RENDER = (_args: unknown, value: JsonValue): ContentBlock[] => [
   { type: 'text', text: JSON.stringify(value, null, 2) },
 ]
 
+/** Forward one resolved-page operation; bridge failures normalize to HarnessError. */
+async function forwardRequest(
+  deps: BrowserToolsDeps,
+  operation: BrowserOperation,
+  args: unknown,
+  signal: AbortSignal,
+): Promise<unknown> {
+  const raw = (args ?? {}) as Record<string, unknown>
+  const page = typeof raw.page === 'string' ? raw.page : undefined
+  const { grantId } = deps.resolvePage(page)
+  const { page: _page, ...rest } = raw
+  try {
+    return await deps.request(grantId, operation, rest as JsonValue, signal)
+  } catch (error) {
+    return bridgeFailure(error)
+  }
+}
+
 export function createBrowserTools(deps: BrowserToolsDeps): ToolDefinition[] {
   const execute =
     (operation: BrowserOperation) =>
-    async (args: unknown, exec: { signal: AbortSignal }): Promise<unknown> => {
-      const raw = (args ?? {}) as Record<string, unknown>
-      const page = typeof raw.page === 'string' ? raw.page : undefined
-      const { grantId } = deps.resolvePage(page)
-      const { page: _page, ...rest } = raw
-      try {
-        return await deps.request(grantId, operation, rest as JsonValue, exec.signal)
-      } catch (error) {
-        return bridgeFailure(error)
-      }
-    }
+    (args: unknown, exec: { signal: AbortSignal }): Promise<unknown> =>
+      forwardRequest(deps, operation, args, exec.signal)
 
   const tools: Array<Omit<ToolDefinition, 'execute'> & { execute(args: unknown, exec: { signal: AbortSignal }): Promise<unknown> }> = [
     {
@@ -143,15 +162,34 @@ export function createBrowserTools(deps: BrowserToolsDeps): ToolDefinition[] {
       output: {
         schema: SCREENSHOT_RESULT_SCHEMA,
         render: (_args: unknown, value: JsonValue): ContentBlock[] => {
-          const shot = value as { url: string; width: number; height: number; data: string; mimeType: string }
+          const shot = value as unknown as { url: string; width: number; height: number; attachment: ImageAttachmentRef }
           return [
             { type: 'text', text: `Screenshot: ${shot.url} (${shot.width}x${shot.height})` },
-            { type: 'image', data: shot.data, mimeType: shot.mimeType },
+            { type: 'image', attachment: shot.attachment },
           ]
         },
       },
       isConcurrencySafe: () => true,
-      execute: execute('screenshot'),
+      execute: async (args, exec) => {
+        // The bridge returns encoded bytes; commit them to the attachment
+        // store so the model-visible result carries only the durable ref.
+        const shot = await forwardRequest(deps, 'screenshot', args, exec.signal) as {
+          url: string
+          width: number
+          height: number
+          data: string
+          mimeType: string
+        }
+        if (!SCREENSHOT_MEDIA_TYPES.has(shot.mimeType as ImageMediaType)) {
+          throw new Error(`browser_screenshot: unsupported media type ${shot.mimeType}`)
+        }
+        const attachment = await deps.attachments.saveImage({
+          data: Buffer.from(shot.data, 'base64'),
+          mediaType: shot.mimeType as ImageMediaType,
+          name: 'browser-screenshot.png',
+        })
+        return { url: shot.url, width: shot.width, height: shot.height, attachment }
+      },
     },
     {
       name: 'browser_act',

@@ -15,6 +15,7 @@ import ToolRegistry, { type ToolRunContext } from '@deepseek-ai/dsh-tools'
 import WebServer from '@deepseek-ai/dsh-host-webserver'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import { WebSocket } from 'ws'
+import { FakeAttachments } from './fake-attachments.ts'
 import {
   GrantId, newGrantId, PROTOCOL_VERSION, encodeMarker,
   type BridgeFrame, type GrantAcceptedFrame, type GrantPutFrame,
@@ -132,7 +133,7 @@ async function stubAgent(ctx: Context, id: string): Promise<Agent> {
   } as unknown as Agent
   let scope!: ReturnType<typeof createScope>
   await ctx.plugin(Object.assign((inner: Context) => { scope = createScope(inner, agent) },
-    { inject: ['tools', 'systemPrompt'] }))
+    { inject: ['tools', 'systemPrompt', 'attachments'] }))
   ;(agent as unknown as { ctx: Context }).ctx = scope.ctx.extend({ agent })
   return agent
 }
@@ -193,6 +194,10 @@ async function makeComposition(): Promise<Composition> {
   await ctx.plugin(WebServer, { host: '127.0.0.1', port: 0 })
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRegistry)
+  // The plugin's inject list requires both httpServer and attachments; the
+  // minting inject chain (tools/systemPrompt/attachments) resolves services
+  // from the root context, mirroring the production agent loop.
+  await ctx.plugin(FakeAttachments)
   await ctx.plugin(Loader, { baseUrl: pathToFileURL(profileDir).href })
   ctx.loader.builtins.include = Include
   await ctx.loader.create({
@@ -205,7 +210,7 @@ async function makeComposition(): Promise<Composition> {
         insert: [{
           id: 'dsh-browser-bridge',
           name: '@dsh-external/dsh-browser-bridge',
-          inject: ['httpServer'],
+          inject: ['httpServer', 'attachments'],
         }],
       }],
     },

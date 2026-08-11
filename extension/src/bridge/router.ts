@@ -68,7 +68,7 @@ interface PendingGrant {
   timer: ReturnType<typeof setTimeout>
 }
 
-const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]', '::1'])
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost'])
 
 export function isLoopbackWsUrl(input: string): boolean {
   let url: URL

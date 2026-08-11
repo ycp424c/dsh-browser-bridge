@@ -51,6 +51,21 @@ describe('extension channel', () => {
     expect(() => channelFromWindow(window)).toThrow(/chrome-extension/)
   })
 
+  it('uses Chromium ancestorOrigins when the iframe referrer is suppressed', () => {
+    const parent = { postMessage: vi.fn() }
+    const fakeWindow = {
+      document: { referrer: '' },
+      location: { ancestorOrigins: { 0: EXT, length: 1, item: () => EXT } },
+      parent,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    } as unknown as Window
+
+    const channel = channelFromWindow(fakeWindow)
+    expect(channel.extensionOrigin).toBe(EXT)
+    channel.dispose()
+  })
+
   it('posts requests to the exact parent origin', async () => {
     const { env, sent } = makeEnv()
     const channel = new ExtensionChannel(env)

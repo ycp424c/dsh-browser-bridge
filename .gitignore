@@ -3,7 +3,7 @@
 node_modules/
 lib/
 dist/
-.output/
+extension/output/
 test-results/
 playwright-report/
 .pw-browsers/

@@ -112,6 +112,9 @@ importers:
       '@deepseek-ai/dsh-agent-loop':
         specifier: link:../../.dsh/source/current/packages/core/agent-loop
         version: link:../../.dsh/source/current/packages/core/agent-loop
+      '@deepseek-ai/dsh-attachment':
+        specifier: link:../../.dsh/source/current/packages/attachment/attachment
+        version: link:../../.dsh/source/current/packages/attachment/attachment
       '@deepseek-ai/dsh-client-runtime':
         specifier: link:../../.dsh/source/current/packages/client/runtime
         version: link:../../.dsh/source/current/packages/client/runtime

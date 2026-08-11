@@ -14,7 +14,7 @@
 
 This is one vertical product, not three independent deliverables: protocol, extension, and DSH plugin are useless without one another. Tasks still keep the units independently testable and integrate them through versioned schemas. The implementation changes only this repository; any discovered DSH limitation requires a reproducer and a separate design decision.
 
-The first release supports local DSH Web origins (`localhost`, `127.0.0.1`, and `[::1]`) and Chrome 118+. Raw CDP passthrough, uploads, downloads, clipboard access, incognito, browser settings, Chrome UI automation, and implicit cross-prompt grants are outside this plan.
+The first release supports local DSH Web origins (`localhost` and `127.0.0.1`) and Chrome 118+. Raw CDP passthrough, uploads, downloads, clipboard access, incognito, browser settings, Chrome UI automation, and implicit cross-prompt grants are outside this plan.
 
 ## File map
 
@@ -158,7 +158,7 @@ Create `tsconfig.base.json`:
 }
 ```
 
-Ignore `.dsh/`, `node_modules/`, `lib/`, `dist/`, `.output/`, `test-results/`, and `playwright-report/`.
+Ignore `.dsh/`, `node_modules/`, `lib/`, `dist/`, `extension/output/`, `test-results/`, and `playwright-report/`.
 
 - [ ] **Step 3: Add a fail-closed local DSH linker**
 
@@ -448,7 +448,7 @@ export default defineConfig({
     permissions: ['debugger', 'tabs', 'storage'],
     action: { default_title: 'Open DSH Browser Bridge' },
     content_security_policy: {
-      extension_pages: "script-src 'self'; object-src 'self'; frame-src http://127.0.0.1:* http://localhost:* http://[::1]:*; connect-src 'self' ws://127.0.0.1:* ws://localhost:* ws://[::1]:* http://127.0.0.1:* http://localhost:* http://[::1]:*",
+      extension_pages: "script-src 'self'; object-src 'self'; frame-src http://127.0.0.1:* http://localhost:*; connect-src 'self' ws://127.0.0.1:* ws://localhost:* http://127.0.0.1:* http://localhost:*",
     },
   },
 })
@@ -492,7 +492,7 @@ pnpm --filter @dsh-external/dsh-browser-bridge-extension typecheck
 pnpm --filter @dsh-external/dsh-browser-bridge-extension build
 ```
 
-Expected: all pass and `extension/.output/chrome-mv3/manifest.json` contains `debugger`, `tabs`, `storage`, and `sidePanel` permissions.
+Expected: all pass and `extension/output/chrome-mv3/manifest.json` contains `debugger`, `tabs`, `storage`, and `sidePanel` permissions.
 
 - [ ] **Step 7: Commit the extension shell**
 
@@ -1126,7 +1126,7 @@ Serve only on `127.0.0.1` and allocate free ports. The fixture contains:
 
 - [ ] **Step 5: Write the failing unpacked-extension E2E**
 
-Build the extension, launch Chrome with `--disable-extensions-except` and `--load-extension` pointing at `extension/.output/chrome-mv3`, derive the extension ID from the service worker URL, and open `chrome-extension://<id>/sidepanel.html` as an ordinary test page. Use a local DSH iframe fixture that speaks the exact parent-frame RPC so this suite exercises the extension boundary without mocking `chrome.tabs` or `chrome.debugger`.
+Build the extension, launch Chrome with `--disable-extensions-except` and `--load-extension` pointing at `extension/output/chrome-mv3`, derive the extension ID from the service worker URL, and open `chrome-extension://<id>/sidepanel.html` as an ordinary test page. Use a local DSH iframe fixture that speaks the exact parent-frame RPC so this suite exercises the extension boundary without mocking `chrome.tabs` or `chrome.debugger`.
 
 The main scenario is the intended development loop:
 
@@ -1186,7 +1186,7 @@ dsh plugin --profile web add /absolute/path/to/dsh-browser-bridge/packages/dsh-p
 dsh web
 ```
 
-Expected artifacts are `packages/dsh-plugin/lib/index.js`, `packages/dsh-plugin/lib/client.js`, `extension/.output/chrome-mv3/manifest.json`, and a Chrome zip under `extension/.output/`. Loading the unpacked extension must use `extension/.output/chrome-mv3`.
+Expected artifacts are `packages/dsh-plugin/lib/index.js`, `packages/dsh-plugin/lib/client.js`, `extension/output/chrome-mv3/manifest.json`, and a Chrome zip under `extension/output/`. Loading the unpacked extension must use `extension/output/chrome-mv3`.
 
 - [ ] **Step 2: Document the product and its permission boundary**
 

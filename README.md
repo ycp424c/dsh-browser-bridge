@@ -81,7 +81,7 @@ values are ever returned.
   `chrome.storage.session` for service-worker startup reconciliation.
 
 Only HTTP(S) tabs are attachable. The first release supports local DSH Web
-origins (`localhost`, `127.0.0.1`, `[::1]`) and Chrome 118+. Raw CDP
+origins (`localhost`, `127.0.0.1`) and Chrome 118+. Raw CDP
 passthrough is disabled by default, incognito tabs are unsupported, there is
 no telemetry by default, and no access carries implicitly into future
 prompts. If DSH Web cannot be framed, the side panel shows an actionable

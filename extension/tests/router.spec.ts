@@ -3,7 +3,7 @@ import {
   GrantHandle, GrantId, PROTOCOL_VERSION, RequestId, type BridgeFrame, type GrantAcceptedFrame,
   type GrantPutFrame, type TabDescriptor,
 } from '@dsh-external/dsh-browser-bridge-protocol'
-import { BridgeRouter, type PanelReply, type ToolExecutor } from '../src/bridge/router.ts'
+import { BridgeRouter, isLoopbackWsUrl, type PanelReply, type ToolExecutor } from '../src/bridge/router.ts'
 import type { BridgeClient, BridgeClientState } from '../src/bridge/client.ts'
 import type { TabCatalog } from '../src/tabs/catalog.ts'
 import { GrantVault } from '../src/grants/vault.ts'
@@ -145,6 +145,10 @@ class FakeDebuggerApi implements ChromeDebuggerApi {
 }
 
 describe('bridge router', () => {
+  it('rejects IPv6 loopback URLs that Chrome extension CSP cannot authorize', () => {
+    expect(isLoopbackWsUrl('ws://[::1]:3080/dsh-browser-bridge/ws')).toBe(false)
+  })
+
   it('defers panel requests and bridge frames until startup reconciliation finishes', async () => {
     // Startup reconciliation is a delayed storage read + best-effort cleanup;
     // while it is pending, NO business traffic may be processed.

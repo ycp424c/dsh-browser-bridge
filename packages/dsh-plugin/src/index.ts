@@ -14,7 +14,7 @@ import { registerTurnTools } from './tools/register.ts'
 
 export const name = '@dsh-external/dsh-browser-bridge'
 
-export const inject = ['httpServer']
+export const inject = ['httpServer', 'attachments']
 
 /** Input config shape; defaults are applied by the `Config` schema. */
 export interface ConfigShape {
