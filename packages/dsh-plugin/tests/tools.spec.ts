@@ -124,6 +124,69 @@ describe('browser tool definitions', () => {
     expect(calls[0]).toMatchObject({ operation: 'observe', args: { maxNodes: 50 } })
   })
 
+  it('preserves structured bridge errors that crossed the WebSocket boundary', async () => {
+    const pages: PageAlias[] = [{ alias: 'page_1', grantId: GrantId('g1'), tab: TAB }]
+    const tools = createBrowserTools(makeDeps(pages, async () => {
+      throw {
+        code: 'stale_element',
+        message: 'element reference could not be resolved',
+        retryable: false,
+      }
+    }))
+    const act = tools.find(tool => tool.name === 'browser_act')!
+
+    await expect(act.execute({
+      action: { kind: 'press', key: 'Enter' },
+    }, { signal } as never)).rejects.toMatchObject({
+      name: 'HarnessError',
+      code: 'stale_element',
+      message: 'stale_element: element reference could not be resolved',
+    })
+  })
+
+  it('rethrows plain Error instances untouched when they carry no stable code', async () => {
+    const pages: PageAlias[] = [{ alias: 'page_1', grantId: GrantId('g1'), tab: TAB }]
+    const tools = createBrowserTools(makeDeps(pages, async () => {
+      throw new Error('plain failure')
+    }))
+    const act = tools.find(tool => tool.name === 'browser_act')!
+    await expect(act.execute({ action: { kind: 'press', key: 'Enter' } }, { signal } as never))
+      .rejects.toMatchObject({ name: 'Error', message: 'plain failure' })
+  })
+
+  it('falls back to a readable message for primitive throws', async () => {
+    const pages: PageAlias[] = [{ alias: 'page_1', grantId: GrantId('g1'), tab: TAB }]
+    const tools = createBrowserTools(makeDeps(pages, async () => {
+      throw 'boom'
+    }))
+    const act = tools.find(tool => tool.name === 'browser_act')!
+    await expect(act.execute({ action: { kind: 'press', key: 'Enter' } }, { signal } as never))
+      .rejects.toMatchObject({ name: 'Error', message: 'boom' })
+  })
+
+  it('normalizes local Error instances tagged with a stable code', async () => {
+    const pages: PageAlias[] = [{ alias: 'page_1', grantId: GrantId('g1'), tab: TAB }]
+    const tools = createBrowserTools(makeDeps(pages, async () => {
+      const failure = new Error('grant is gone')
+      Object.assign(failure, { code: 'grant_expired' })
+      throw failure
+    }))
+    const act = tools.find(tool => tool.name === 'browser_act')!
+    await expect(act.execute({ action: { kind: 'press', key: 'Enter' } }, { signal } as never))
+      .rejects.toMatchObject({ name: 'HarnessError', code: 'grant_expired', message: 'grant_expired: grant is gone' })
+  })
+
+  it('does not misread partial objects as bridge errors', async () => {
+    const pages: PageAlias[] = [{ alias: 'page_1', grantId: GrantId('g1'), tab: TAB }]
+    const tools = createBrowserTools(makeDeps(pages, async () => {
+      // A look-alike that lacks the retryable flag is not a stable bridge error.
+      throw { code: 'stale_element', message: 'incomplete' }
+    }))
+    const act = tools.find(tool => tool.name === 'browser_act')!
+    await expect(act.execute({ action: { kind: 'press', key: 'Enter' } }, { signal } as never))
+      .rejects.toMatchObject({ name: 'Error' })
+  })
+
   it('strips the page argument before forwarding to the extension', async () => {
     const pages: PageAlias[] = [{ alias: 'page_1', grantId: GrantId('g1'), tab: TAB }]
     let forwarded: JsonValue = {}

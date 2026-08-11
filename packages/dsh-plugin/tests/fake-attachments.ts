@@ -1,10 +1,11 @@
 /**
  * Shared fixture: an in-memory `attachments` cordis service.
  *
- * The plugin's inject list requires `ctx.attachments`, so tests that mount
- * the plugin (apply) or resolve services through the agent's scoped context
- * (pre-step) register this fake before loading anything that reads
- * `agent.ctx.attachments`.
+ * The bridge plugin declares `attachments` in its OWN inject list, so tests
+ * that mount the plugin (apply) or assemble its pre-step dependencies
+ * (pre-step, composition) register this fake on the plugin/root context. The
+ * store is passed to `registerTurnTools` explicitly; the agent-scoped tool
+ * registry never resolves it.
  */
 import { Context, Service } from 'cordis'
 import {

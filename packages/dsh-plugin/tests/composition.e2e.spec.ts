@@ -133,7 +133,9 @@ async function stubAgent(ctx: Context, id: string): Promise<Agent> {
   } as unknown as Agent
   let scope!: ReturnType<typeof createScope>
   await ctx.plugin(Object.assign((inner: Context) => { scope = createScope(inner, agent) },
-    { inject: ['tools', 'systemPrompt', 'attachments'] }))
+    // DSH 0810 agents inherit the AgentLoop dependency surface. Attachments
+    // belong to the bridge plugin, not to the agent-scoped tool registry.
+    { inject: ['tools', 'systemPrompt'] }))
   ;(agent as unknown as { ctx: Context }).ctx = scope.ctx.extend({ agent })
   return agent
 }
@@ -194,9 +196,8 @@ async function makeComposition(): Promise<Composition> {
   await ctx.plugin(WebServer, { host: '127.0.0.1', port: 0 })
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRegistry)
-  // The plugin's inject list requires both httpServer and attachments; the
-  // minting inject chain (tools/systemPrompt/attachments) resolves services
-  // from the root context, mirroring the production agent loop.
+  // The bridge plugin owns the attachment dependency. The agent scope minted
+  // below intentionally mirrors DSH 0810's narrower AgentLoop dependencies.
   await ctx.plugin(FakeAttachments)
   await ctx.plugin(Loader, { baseUrl: pathToFileURL(profileDir).href })
   ctx.loader.builtins.include = Include

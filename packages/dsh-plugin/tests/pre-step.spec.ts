@@ -57,10 +57,11 @@ async function stubAgent(ctx: Context, id: string): Promise<Agent> {
   } as unknown as Agent
   // The scoped context resolves services through the MINTING plugin's
   // dependency chain (the agent loop's inject list plays this role in
-  // production).
+  // production). DSH 0810 agents inherit the AgentLoop dependency surface:
+  // tools and systemPrompt only — attachments belong to the bridge plugin.
   let scope!: ReturnType<typeof createScope>
   await ctx.plugin(Object.assign((inner: Context) => { scope = createScope(inner, agent) },
-    { inject: ['tools', 'systemPrompt', 'attachments'] }))
+    { inject: ['tools', 'systemPrompt'] }))
   ;(agent as unknown as { ctx: Context }).ctx = scope.ctx.extend({ agent })
   return agent
 }
@@ -113,8 +114,10 @@ async function makeFixture(): Promise<Fixture> {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRegistry)
-  // The minting inject chain (tools/systemPrompt/attachments) resolves
-  // services from the root context, mirroring the production agent loop.
+  // The bridge plugin owns the attachment dependency: the store is injected
+  // into the plugin context (as in production) and handed to the tool
+  // registration explicitly. The agent scope minted above intentionally
+  // mirrors DSH 0810's narrower AgentLoop dependencies.
   await ctx.plugin(FakeAttachments)
   const agent = await stubAgent(ctx, 'session-a')
   const pairing = new PairingStore()
@@ -130,7 +133,10 @@ async function makeFixture(): Promise<Fixture> {
   const deps: PreStepHandlerDeps = {
     server,
     grants,
-    registerTurnTools: (agent, turn) => registerTurnTools(agent, turn, { server }),
+    registerTurnTools: (agent, turn) => registerTurnTools(agent, turn, {
+      server,
+      attachments: ctx.attachments,
+    }),
   }
   const handler = createPreStepHandler(deps)
   ctx.on('agent/pre-step', (payload, next) => handler(payload, next))

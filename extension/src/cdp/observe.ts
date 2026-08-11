@@ -11,7 +11,7 @@ export interface ObserveResult {
   viewport: { width: number; height: number; scrollX: number; scrollY: number }
   text: string
   nodes: Array<{
-    ref: ElementRef
+    ref?: ElementRef
     role: string
     name: string
     value?: string
@@ -102,9 +102,14 @@ function collectNodes(
     }
     if (meaningful && nodes.length < maxNodes) {
       const record: ObserveResult['nodes'][number] = {
-        ref: refs.register(node.backendDOMNodeId ?? -1, node.frameId ?? 'main', generation),
         role,
         name: node.name?.value ?? '',
+      }
+      // Only a valid positive backend DOM id can back a resolvable ref;
+      // synthetic AX nodes without one stay semantic context only.
+      const backendDOMNodeId = node.backendDOMNodeId
+      if (backendDOMNodeId !== undefined && Number.isInteger(backendDOMNodeId) && backendDOMNodeId > 0) {
+        record.ref = refs.register(backendDOMNodeId, node.frameId ?? 'main', generation)
       }
       const value = node.value?.value
       if (value !== undefined && value !== '' && !isSensitive(node)) {

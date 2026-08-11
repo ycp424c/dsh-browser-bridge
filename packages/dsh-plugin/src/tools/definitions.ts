@@ -8,11 +8,12 @@ import { HarnessError } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { AttachmentStore, ImageAttachmentRef, ImageMediaType } from '@deepseek-ai/dsh-attachment'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
-import type {
-  BrowserOperation,
-  GrantId,
-  JsonValue,
-  TabDescriptor,
+import {
+  bridgeErrorSchema,
+  type BrowserOperation,
+  type GrantId,
+  type JsonValue,
+  type TabDescriptor,
 } from '@dsh-external/dsh-browser-bridge-protocol'
 
 export interface PageAlias {
@@ -43,10 +44,19 @@ const READ_OPERATIONS = new Set<BrowserOperation>(['observe', 'inspect', 'screen
 
 /** Normalize a bridge error into a HarnessError carrying the stable code. */
 function bridgeFailure(error: unknown): never {
-  if (error instanceof Error && 'code' in error && typeof (error as { code: unknown }).code === 'string') {
-    const bridge = error as { code: string; message: string }
-    throw new HarnessError(`${bridge.code}: ${bridge.message}`, bridge.code)
+  // Bridge errors cross the WebSocket boundary as plain structured objects,
+  // so structural validation (not instanceof) recognizes them.
+  const parsed = bridgeErrorSchema.safeParse(error)
+  if (parsed.success) {
+    throw new HarnessError(`${parsed.data.code}: ${parsed.data.message}`, parsed.data.code)
   }
+  // Local failures may be Error instances tagged with a stable code.
+  if (error instanceof Error && 'code' in error && typeof (error as { code: unknown }).code === 'string') {
+    const tagged = error as { code: string }
+    throw new HarnessError(`${tagged.code}: ${error.message}`, tagged.code)
+  }
+  // Unstructured throws keep their identity; otherwise fall back to a
+  // readable message instead of crashing on "[object Object]".
   throw error instanceof Error ? error : new Error(String(error))
 }
 

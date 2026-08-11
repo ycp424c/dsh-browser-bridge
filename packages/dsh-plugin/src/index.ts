@@ -44,7 +44,13 @@ export function apply(ctx: Context, config: ConfigShape): void {
   const preStep = createPreStepHandler({
     server,
     grants,
-    registerTurnTools: (agent, turn) => registerTurnTools(agent, turn, { server }),
+    registerTurnTools: (agent, turn) => registerTurnTools(agent, turn, {
+      server,
+      // The bridge plugin owns the attachment store: it is injected here on
+      // the plugin's own dependency surface and passed down explicitly, so
+      // the agent scope (DSH 0810: tools/systemPrompt) never needs it.
+      attachments: ctx.attachments,
+    }),
   })
 
   ctx.effect(() => {

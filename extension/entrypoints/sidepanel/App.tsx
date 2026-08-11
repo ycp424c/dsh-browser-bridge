@@ -9,6 +9,7 @@ import { Button } from '../../src/components/ui/button.tsx'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '../../src/components/ui/card.tsx'
 import { Input } from '../../src/components/ui/input.tsx'
 import type { BridgeClientState } from '../../src/bridge/client.ts'
+import { ResilientPanelPort } from '../../src/bridge/resilient-panel-port.ts'
 
 const STATUS_LABEL: Record<BridgeClientState, string> = {
   idle: 'Bridge idle',
@@ -26,29 +27,47 @@ export default function App() {
   const [readinessExpired, setReadinessExpired] = useState(false)
   const [iframeEpoch, setIframeEpoch] = useState(0)
   const iframeRef = useRef<HTMLIFrameElement | null>(null)
-  const portRef = useRef<chrome.runtime.Port | null>(null)
+  const originRef = useRef<string | null>(null)
+  const portRef = useRef<ResilientPanelPort | null>(null)
 
+  // Origin loading is independent of the runtime port lifecycle: a slow
+  // settings read must never tear down and recreate the port.
   useEffect(() => {
     void loadDshOrigin(chromeSettingsStorage(chrome.storage.local)).then(loaded => {
       setOrigin(loaded)
       setDraft(loaded)
     })
-    const port = chrome.runtime.connect({ name: 'sidepanel' })
-    portRef.current = port
-    port.onMessage.addListener((message: unknown) => {
-      const payload = message as { type?: string; state?: BridgeClientState }
-      if (payload.type === 'bridge.status' && payload.state !== undefined) {
-        setStatus(payload.state)
-      } else if (payload.type === 'panel.reply') {
-        // Replies to iframe requests are forwarded with the exact origin.
-        iframeRef.current?.contentWindow?.postMessage(payload, origin ?? '')
-      }
+  }, [])
+
+  // Keep the latest origin readable by the port message handler without
+  // re-creating the port: iframe replies must use the current origin.
+  useEffect(() => {
+    originRef.current = origin
+  }, [origin])
+
+  // Runtime port lifecycle, owned once per mount. The port is a disconnectable
+  // transport: ResilientPanelPort reconnects with bounded backoff on
+  // disconnection and never reconnects after this effect disposes it.
+  useEffect(() => {
+    const port = new ResilientPanelPort({
+      connect: () => chrome.runtime.connect({ name: 'sidepanel' }),
+      onMessage: (message: unknown) => {
+        const payload = message as { type?: string; state?: BridgeClientState }
+        if (payload.type === 'bridge.status' && payload.state !== undefined) {
+          setStatus(payload.state)
+        } else if (payload.type === 'panel.reply') {
+          // Replies to iframe requests are forwarded with the exact origin.
+          iframeRef.current?.contentWindow?.postMessage(payload, originRef.current ?? '')
+        }
+      },
     })
+    portRef.current = port
+    port.open()
     return () => {
-      port.disconnect()
+      port.dispose()
       portRef.current = null
     }
-  }, [origin])
+  }, [])
 
   const onMessage = (event: MessageEvent) => {
     if (event.source !== iframeRef.current?.contentWindow) return
@@ -58,7 +77,8 @@ export default function App() {
       setClientReady(true)
       return
     }
-    portRef.current?.postMessage({ type: 'panel.forward', payload: event.data })
+    // Safe send layer: buffers while disconnected, never throws to the window.
+    portRef.current?.send({ type: 'panel.forward', payload: event.data })
   }
 
   // Five-second readiness window after the iframe loads: no client-ready

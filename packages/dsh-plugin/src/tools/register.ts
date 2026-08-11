@@ -3,6 +3,7 @@
  * own context so they exist only while that agent's turn holds a grant.
  */
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { AttachmentStore } from '@deepseek-ai/dsh-attachment'
 import type { BridgeServer } from '../bridge/server.ts'
 import { createBrowserTools, resolvePageAlias, type PageAlias } from './definitions.ts'
 
@@ -19,6 +20,12 @@ export interface ActiveTurn {
 
 export interface RegisterTurnToolsDeps {
   server: BridgeServer
+  /**
+   * Durable attachment store, owned by the host plugin's own inject surface
+   * (`attachments`) and passed down explicitly. The agent scope inherits the
+   * AgentLoop dependency surface (tools/systemPrompt) and never exposes it.
+   */
+  attachments: AttachmentStore
 }
 
 /** Register the eight browser tools for one active turn; returns disposers. */
@@ -30,7 +37,7 @@ export function registerTurnTools(
   const tools = createBrowserTools({
     resolvePage: page => resolvePageAlias(turn.pages, page),
     request: (grantId, operation, args, signal) => deps.server.request(grantId, operation, args, signal),
-    attachments: agent.ctx.attachments,
+    attachments: deps.attachments,
   })
   return tools.map(definition => agent.ctx.tools.register(definition))
 }
