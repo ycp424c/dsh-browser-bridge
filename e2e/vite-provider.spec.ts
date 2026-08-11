@@ -259,18 +259,55 @@ test.describe('vite provider browser flows', () => {
     }
   })
 
-  test('development auto-activation opens the embedded panel drawer', async ({ page }) => {
+  test('development auto-activation registers with the panel UI hidden', async ({ page }) => {
     const fixture = await startFixture('vanilla')
     try {
       await page.goto(fixture.url)
+      const target = await fixture.harness.waitForAnyTarget()
+      // Dev auto-activates and registers, but the default panel.visible=false
+      // keeps the UI hidden: no host element, no launcher, no drawer. The
+      // wait gives a hypothetical buggy auto-open time to manifest before
+      // the "never appears" assertion.
+      await page.waitForTimeout(500)
+      expect(await page.evaluate(() => document.getElementById('dsh-browser-bridge-panel-host'))).toBeNull()
+      const result = await fixture.harness.call(target.targetId, 'observe', {}) as { nodes: unknown[] }
+      expect(result.nodes.length).toBeGreaterThan(0)
+    } finally {
+      await stopFixture(fixture)
+    }
+  })
+
+  test('development with panel.visible=true shows the launcher entry after the probe but never the drawer', async ({ page }) => {
+    const fixture = await startFixture('vanilla', { DSH_BRIDGE_PANEL_VISIBLE: 'true' })
+    try {
+      await page.goto(fixture.url)
       await fixture.harness.waitForAnyTarget()
-      // Dev auto-activates: the embedded panel drawer opens directly (the
-      // launcher is the production visible=true path, covered in the
-      // security suite).
+      // The launcher entry appears (probe succeeded), the drawer stays closed.
+      await expect(page.locator('#dsh-browser-bridge-panel-host')).toBeVisible({ timeout: 10_000 })
+      const launcher = await page.evaluate(() =>
+        document.getElementById('dsh-browser-bridge-panel-host')?.shadowRoot?.querySelector('.dsh-bb-launcher') !== null)
+      expect(launcher).toBe(true)
+      const drawer = await page.evaluate(() =>
+        document.getElementById('dsh-browser-bridge-panel-host')?.shadowRoot?.querySelector('.dsh-bb-drawer') !== null)
+      expect(drawer).toBe(false)
+    } finally {
+      await stopFixture(fixture)
+    }
+  })
+
+  test('development with ?dsh=1 explicitly opens the panel drawer', async ({ page }) => {
+    const fixture = await startFixture('vanilla')
+    try {
+      await page.goto(fixture.url + '?dsh=1')
+      const target = await fixture.harness.waitForAnyTarget()
+      // Explicit URL activation opens the drawer even though the default
+      // panel.visible=false keeps automatic activation hidden.
       await expect(page.locator('#dsh-browser-bridge-panel-host')).toBeVisible({ timeout: 10_000 })
       const drawer = await page.evaluate(() =>
         document.getElementById('dsh-browser-bridge-panel-host')?.shadowRoot?.querySelector('.dsh-bb-drawer') !== null)
       expect(drawer).toBe(true)
+      const result = await fixture.harness.call(target.targetId, 'observe', {}) as { nodes: unknown[] }
+      expect(result.nodes.length).toBeGreaterThan(0)
     } finally {
       await stopFixture(fixture)
     }

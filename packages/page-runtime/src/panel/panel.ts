@@ -99,6 +99,12 @@ export function createPanel(options: PanelOptions): Panel | null {
       close.addEventListener('click', () => {
         drawer?.remove()
         drawer = null
+        // Release the current iframe channel completely (MessagePort,
+        // listeners, timeout) so a reopen builds a clean one instead of
+        // overwriting a live reference.
+        channel?.dispose()
+        channel = null
+        fallback = null
       })
       header.appendChild(close)
       drawer.appendChild(header)

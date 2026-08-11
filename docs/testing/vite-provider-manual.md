@@ -24,8 +24,8 @@ recorded with evidence.
 
 ## Chrome checklist
 
-- [ ] dev page: the embedded DSH Web panel opens (launcher/drawer visible,
-      iframe loads the exact local DSH origin).
+- [ ] dev page: auto-connects and registers, and the panel UI stays hidden
+      by default (`panel.visible: false`); `?dsh=1` opens the drawer.
 - [ ] production HTTPS page: the local DSH probe succeeds and the target
       connects (no extension installed).
 - [ ] `@当前开发页`: observe, controlled input (React/Vue), HMR

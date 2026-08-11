@@ -1,9 +1,34 @@
 /**
  * Activation state machine: dormant, probing, available, connecting,
- * connected, failed. In production the default is zero-network dormancy;
- * only an explicit user activation (shortcut, query parameter, or the
- * persisted local switch) or an explicit deployment choice
- * (autoConnectInBuild / panel.visible) produces any loopback request.
+ * connected, failed. The panel display policy is orthogonal to the bridge:
+ *
+ * - `panel.enabled=false` creates no UI at all; the bridge pipeline keeps
+ *   running and stays reachable from standalone DSH Web.
+ * - `panel.visible=false` keeps the UI hidden: no launcher entry and no
+ *   drawer ever appear from automatic activation.
+ * - `panel.visible=true` permits the launcher entry, but only after a
+ *   successful local health probe; it never opens the drawer by itself.
+ * - The drawer opens only on explicit user activation (shortcut, `?dsh=1`,
+ *   or a launcher click) — never automatically. `?dsh=1` wins over every
+ *   mode default and over the persisted switch. A persisted local
+ *   activation switch resumes the bridge silently: it re-probes and
+ *   re-connects on later loads but opens no drawer and shows no failure UI.
+ *
+ * Mode matrix (bridge.enabled=true):
+ *
+ * | mode        | automatic start behavior                        | explicit activation |
+ * |-------------|-------------------------------------------------|---------------------|
+ * | development | probe -> connect/register; no drawer; launcher  | probe -> connect/   |
+ * |             | only after probe success when panel.visible     | register -> open    |
+ * |             |                                                 | drawer (if enabled) |
+ * | production  | dormant (zero network) unless autoConnectInBuild| probe -> connect/   |
+ * |             | (probe -> connect/register) or panel.visible    | register -> open    |
+ * |             | (probe-only -> launcher after probe success)    | drawer (if enabled) |
+ *
+ * In production the default is zero-network dormancy; only an explicit
+ * user activation (shortcut, query parameter, or the persisted local
+ * switch) or an explicit deployment choice (autoConnectInBuild /
+ * panel.visible) produces any loopback request.
  */
 import type { PageRuntimeConfig } from './config.ts'
 
@@ -20,12 +45,20 @@ export interface KeyEventLike {
   key: string
 }
 
+export interface ActivationMeta {
+  /** True when this activation pipeline was started by explicit user
+   *  action (shortcut, query parameter, or launcher click). Automatic
+   *  activations (development start, autoConnectInBuild, probe-only)
+   *  never carry this flag. */
+  explicit?: boolean
+}
+
 export interface ActivatorOptions {
   config: PageRuntimeConfig
   probe(): Promise<boolean>
   connect(): Promise<void>
   openPanel(): void
-  onState?(state: ActivationState): void
+  onState?(state: ActivationState, meta?: ActivationMeta): void
   storage?: Storage
   location?: { search: string }
   addKeyListener?(handler: (event: KeyEventLike) => void): () => void
@@ -85,18 +118,24 @@ export class Activator {
       this.setState('dormant')
       return
     }
-    if (config.mode === 'development') {
-      // Development auto-activates (probe, connect, register).
-      void this.activate({ openPanel: config.panel.enabled })
+    // Explicit URL intent (?dsh=1) wins over every mode default and over
+    // the persisted switch, in development and production alike.
+    if (this.hasQueryActivation(config)) {
+      this.userActivate({ openPanel: config.panel.enabled })
       return
     }
-    if (this.storage?.getItem(ACTIVATION_STORAGE_KEY) === '1') {
-      // Persisted explicit activation resumes the bridge.
+    if (config.mode === 'development') {
+      // Development auto-activates (probe, connect, register), but never
+      // opens the panel: panel.visible only permits the launcher entry
+      // after a successful probe, and the drawer opens solely through
+      // explicit user activation (shortcut, ?dsh=1, launcher click).
       void this.activate({})
       return
     }
-    if (this.hasQueryActivation(config)) {
-      this.userActivate({ openPanel: config.panel.enabled })
+    if (this.storage?.getItem(ACTIVATION_STORAGE_KEY) === '1') {
+      // Persisted activation resumes the bridge silently: it re-probes and
+      // re-connects, but opens no drawer and shows no failure UI.
+      void this.activate({})
       return
     }
     if (config.bridge.autoConnectInBuild) {
@@ -126,13 +165,17 @@ export class Activator {
    */
   userActivate(options: { openPanel?: boolean } = {}): void {
     this.persistActivation()
-    void this.activate({ openPanel: options.openPanel ?? this.options.config.panel.enabled })
+    void this.activate({
+      openPanel: options.openPanel ?? this.options.config.panel.enabled,
+      explicit: true,
+    })
   }
 
   /** Probe, connect/register, and open the panel when requested. */
-  async activate(options: { openPanel?: boolean } = {}): Promise<void> {
+  async activate(options: { openPanel?: boolean; explicit?: boolean } = {}): Promise<void> {
     if (this.disposed) return
-    this.setState('probing')
+    const explicit = options.explicit === true
+    this.setState('probing', { explicit })
     let ok = false
     try {
       ok = await this.options.probe()
@@ -141,18 +184,24 @@ export class Activator {
     }
     if (this.disposed) return
     if (!ok) {
-      this.setState('failed')
+      this.setState('failed', { explicit })
       return
     }
-    this.setState('connecting')
+    // The launcher entry may appear only after a successful health probe
+    // and only when the deployment chose panel.visible=true; it is an
+    // entry point, never an automatic drawer.
+    if (this.options.config.panel.visible) {
+      this.setState('available', { explicit })
+    }
+    this.setState('connecting', { explicit })
     try {
       await this.options.connect()
     } catch {
-      if (!this.disposed) this.setState('failed')
+      if (!this.disposed) this.setState('failed', { explicit })
       return
     }
     if (this.disposed) return
-    this.setState('connected')
+    this.setState('connected', { explicit })
     if (options.openPanel === true) this.options.openPanel()
   }
 
@@ -185,9 +234,9 @@ export class Activator {
     this.storage?.setItem(ACTIVATION_STORAGE_KEY, '1')
   }
 
-  private setState(state: ActivationState): void {
+  private setState(state: ActivationState, meta?: ActivationMeta): void {
     this.state = state
-    this.options.onState?.(state)
+    this.options.onState?.(state, meta)
   }
 
   dispose(): void {

@@ -171,8 +171,9 @@ export default defineConfig({
 })
 ```
 
-- **开发环境默认自动连接**本地 DSH 并注册页面 target。
-- **生产构建默认不注入**；显式 `injectInBuild: true` 后仍默认**休眠**（零本地网络请求），只有快捷键、`?dsh=1` 或本地激活开关才会激活；`autoConnectInBuild: true` 才允许每个访问者主动探测并连接。
+- **开发环境默认自动连接**本地 DSH 并注册页面 target，但**不自动打开面板**：`panel.visible: false`（默认）保持 UI 完全隐藏；`panel.visible: true` 也只允许在本地健康探测成功后显示 launcher 入口，抽屉始终只在显式激活（快捷键、`?dsh=1`、launcher 点击）时打开。
+- **生产构建默认不注入**；显式 `injectInBuild: true` 后仍默认**休眠**（零本地网络请求），只有快捷键、`?dsh=1` 或本地激活开关才会激活；`autoConnectInBuild: true` 才允许每个访问者主动探测并连接；`panel.visible: true` 只做健康探测并在成功后显示入口，不注册 target。
+- `panel.enabled: false` 只关闭嵌入 UI，bridge 激活管线照常运行，仍可从独立 DSH Web 的 `@开发页面` 附加。
 - `dshOrigin` 只接受回环地址：`localhost`、`*.localhost`、`127.0.0.0/8`、`::1`。配置拒绝凭据、非 HTTP(S) 与远程地址，且不扫描端口。
 - 所有配置都会进入前端产物：schema 拒绝任何秘密形态的字段，不要把 token/密钥放进配置。
 

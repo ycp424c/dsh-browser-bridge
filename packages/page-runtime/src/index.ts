@@ -13,6 +13,7 @@ export {
 export {
   ACTIVATION_STORAGE_KEY,
   Activator,
+  type ActivationMeta,
   type ActivationState,
   type KeyEventLike,
 } from './activation.ts'

@@ -20,9 +20,13 @@ class FakeChannel implements PanelChannelLike {
   errorHandler: ((code: string) => void) | null = null
   inited = false
   disposed = false
+  disposeCalls = 0
 
   init(): void { this.inited = true }
-  dispose(): void { this.disposed = true }
+  dispose(): void {
+    this.disposed = true
+    this.disposeCalls += 1
+  }
   onReady(handler: () => void): void { this.readyHandler = handler }
   onError(handler: (code: string) => void): void { this.errorHandler = handler }
 }
@@ -106,6 +110,78 @@ describe('shadow dom panel', () => {
     // Closing the drawer removes it; the host element stays for reopening.
     ;(shadow.querySelector('.dsh-bb-close') as HTMLButtonElement).click()
     expect(shadow.querySelector('.dsh-bb-drawer')).toBeNull()
+  })
+
+  it('close disposes the current channel and reopening builds a fresh one', () => {
+    const channels: FakeChannel[] = []
+    const panel = createPanel({
+      config: baseConfig(),
+      targetId: TARGET_ID as never,
+      dshOrigin: DSH_ORIGIN,
+      onActivate: vi.fn(),
+      channelFactory: () => {
+        const channel = new FakeChannel()
+        channels.push(channel)
+        return channel
+      },
+    })
+    panel!.open()
+    const first = channels[0]!
+    expect(first.inited).toBe(true)
+    const host = hostElement()!
+
+    // Close releases the current iframe channel completely.
+    ;(host.shadowRoot!.querySelector('.dsh-bb-close') as HTMLButtonElement).click()
+    expect(host.shadowRoot!.querySelector('.dsh-bb-drawer')).toBeNull()
+    expect(first.disposed).toBe(true)
+    expect(first.disposeCalls).toBe(1)
+
+    // Reopen creates a brand-new channel instead of reusing the dead one.
+    panel!.open()
+    expect(channels).toHaveLength(2)
+    const second = channels[1]!
+    expect(second.inited).toBe(true)
+    expect(second.disposed).toBe(false)
+    expect(host.shadowRoot!.querySelector('.dsh-bb-drawer')).not.toBeNull()
+
+    // The final dispose cleans the live channel exactly once and never
+    // touches the already-disposed first channel again.
+    panel!.dispose()
+    expect(second.disposed).toBe(true)
+    expect(second.disposeCalls).toBe(1)
+    expect(first.disposeCalls).toBe(1)
+  })
+
+  it('reopening wires the new channel to a fresh fallback', () => {
+    const channels: FakeChannel[] = []
+    const panel = createPanel({
+      config: baseConfig(),
+      targetId: TARGET_ID as never,
+      dshOrigin: DSH_ORIGIN,
+      onActivate: vi.fn(),
+      channelFactory: () => {
+        const channel = new FakeChannel()
+        channels.push(channel)
+        return channel
+      },
+    })
+    panel!.open()
+    const host = hostElement()!
+    channels[0]!.errorHandler?.('embedding_blocked')
+    const firstFallback = inShadow('a.dsh-bb-fallback') as HTMLAnchorElement | null
+    expect(firstFallback?.hasAttribute('hidden')).toBe(false)
+
+    // Closing drops the detached fallback reference with the drawer.
+    ;(host.shadowRoot!.querySelector('.dsh-bb-close') as HTMLButtonElement).click()
+    expect(firstFallback?.isConnected).toBe(false)
+    panel!.open()
+    const secondFallback = inShadow('a.dsh-bb-fallback') as HTMLAnchorElement | null
+    expect(secondFallback).not.toBeNull()
+    expect(secondFallback).not.toBe(firstFallback)
+    expect(secondFallback?.hasAttribute('hidden')).toBe(true)
+    // Only the new channel's errors reveal the new fallback.
+    channels[1]!.errorHandler?.('embedding_blocked')
+    expect(secondFallback?.hasAttribute('hidden')).toBe(false)
   })
 
   it('an embedding failure keeps the target alive and offers an exact-origin new-tab fallback', () => {

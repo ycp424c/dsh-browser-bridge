@@ -36,6 +36,11 @@ import { waitForCondition } from './tools/wait.ts'
 
 export interface PageRuntime {
   readonly targetId: TargetId
+  /**
+   * Programmatic activation: probes, connects, and registers; opens the
+   * panel only when openPanel is requested. Unlike explicit user activation
+   * (shortcut, ?dsh=1, launcher click), a failure shows no diagnostic UI.
+   */
   activate(options?: { openPanel?: boolean }): Promise<void>
   notifyHmrUpdate(): void
   dispose(): void
@@ -169,13 +174,15 @@ export function startPageRuntime(config: PageRuntimeConfig): PageRuntime {
     probe: () => probeLocalDsh({ dshOrigin }),
     connect,
     openPanel: () => panel?.open(),
-    onState: state => {
+    onState: (state, meta) => {
       // visible=true shows the launcher only after a successful probe; a
-      // connected bridge updates the drawer banner; a failed activation
-      // opens the drawer with the diagnostic and the new-tab fallback so
-      // blocked local access is never silent.
+      // connected bridge updates the drawer banner. Only an explicit user
+      // activation (shortcut, ?dsh=1, launcher click) opens the drawer
+      // with the failure diagnostic and the new-tab fallback: automatic
+      // activations (development start, autoConnectInBuild, probe-only)
+      // never surface UI that panel.visible did not permit.
       if (state === 'available') panel?.showLauncher()
-      if (state === 'failed') {
+      if (state === 'failed' && meta?.explicit === true) {
         panel?.open()
         panel?.setConnection('failed')
         panel?.showDiagnostic()
