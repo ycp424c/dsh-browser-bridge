@@ -13,6 +13,8 @@ import { createPreStepHandler } from './pre-step.ts'
 import { registerTurnTools } from './tools/register.ts'
 import { ProviderRegistry } from './targets/provider-registry.ts'
 import { TargetCoordinator } from './targets/coordinator.ts'
+import { ViteTargetBroker } from './vite/broker.ts'
+import { createViteRoutes } from './vite/routes.ts'
 
 export const name = '@dsh-external/dsh-browser-bridge'
 
@@ -26,6 +28,14 @@ export interface ConfigShape {
   consoleBufferSize?: number
   networkBufferSize?: number
   rawCdpEnabled?: boolean
+  viteMaxTargets?: number
+  viteMaxTargetsPerOrigin?: number
+  viteMaxFrameBytes?: number
+  viteMaxConcurrentCalls?: number
+  viteMaxFramesPerSecond?: number
+  viteHeartbeatMs?: number
+  viteDisconnectMs?: number
+  viteReconnectWindowMs?: number
 }
 
 export const Config: z<ConfigShape> = z.object({
@@ -35,6 +45,14 @@ export const Config: z<ConfigShape> = z.object({
   consoleBufferSize: z.natural().min(1).default(200),
   networkBufferSize: z.natural().min(1).default(200),
   rawCdpEnabled: z.boolean().default(false),
+  viteMaxTargets: z.natural().min(1).default(32),
+  viteMaxTargetsPerOrigin: z.natural().min(1).default(8),
+  viteMaxFrameBytes: z.natural().min(1_024).default(1_048_576),
+  viteMaxConcurrentCalls: z.natural().min(1).default(4),
+  viteMaxFramesPerSecond: z.natural().min(1).default(16),
+  viteHeartbeatMs: z.natural().min(1_000).default(15_000),
+  viteDisconnectMs: z.natural().min(1_000).default(45_000),
+  viteReconnectWindowMs: z.natural().min(1_000).default(45_000),
 })
 
 export function apply(ctx: Context, config: ConfigShape): void {
@@ -44,7 +62,19 @@ export function apply(ctx: Context, config: ConfigShape): void {
   const registry = new ProviderRegistry()
   const coordinator = new TargetCoordinator({ providers: registry, grants })
   const server = new BridgeServer({ pairing, coordinator, toolTimeoutMs: resolved.toolTimeoutMs })
+  const broker = new ViteTargetBroker({
+    coordinator,
+    maxTargets: resolved.viteMaxTargets,
+    maxTargetsPerOrigin: resolved.viteMaxTargetsPerOrigin,
+    maxFrameBytes: resolved.viteMaxFrameBytes,
+    maxConcurrentCalls: resolved.viteMaxConcurrentCalls,
+    maxFramesPerSecond: resolved.viteMaxFramesPerSecond,
+    heartbeatMs: resolved.viteHeartbeatMs,
+    disconnectMs: resolved.viteDisconnectMs,
+    reconnectWindowMs: resolved.viteReconnectWindowMs,
+  })
   registry.register(server)
+  registry.register(broker)
   const wss = new WebSocketServer({ noServer: true })
   const preStep = createPreStepHandler({
     server,
@@ -99,6 +129,13 @@ export function apply(ctx: Context, config: ConfigShape): void {
       },
     })
 
+    // Vite page broker: low-authority multi-target routes and WebSocket.
+    const offViteRoutes = createViteRoutes({
+      broker,
+      coordinator,
+      grantTtlMs: resolved.grantTtlMs,
+    }).register(ctx.httpServer)
+
     const offPreStep = ctx.on('agent/pre-step', (payload, next) => preStep(payload, next))
     const offTurnStopping = ctx.on('agent/turn-stopping', ({ agent, turn }) => {
       preStep.onTurnStopping(agent, turn)
@@ -116,13 +153,18 @@ export function apply(ctx: Context, config: ConfigShape): void {
     return () => {
       offPair()
       offWs()
+      offViteRoutes()
       offPreStep()
       offTurnStopping()
       offDisposed()
       // Terminal: remove turn-scoped tools, then revoke every remaining
       // grant of the live connection (consumed and pending offers) with
-      // grant.revoke frames before the socket closes.
+      // grant.revoke frames before the socket closes. The Vite broker is
+      // disposed before the coordinator-owned server so its grants are
+      // revoked and its pending calls settled while the coordinator is
+      // still intact.
       preStep.disposeAll()
+      broker.dispose()
       server.dispose()
       wss.close()
     }

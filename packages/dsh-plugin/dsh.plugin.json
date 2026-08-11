@@ -11,6 +11,14 @@
     "toolTimeoutMs": 60000,
     "consoleBufferSize": 200,
     "networkBufferSize": 200,
-    "rawCdpEnabled": false
+    "rawCdpEnabled": false,
+    "viteMaxTargets": 32,
+    "viteMaxTargetsPerOrigin": 8,
+    "viteMaxFrameBytes": 1048576,
+    "viteMaxConcurrentCalls": 4,
+    "viteMaxFramesPerSecond": 16,
+    "viteHeartbeatMs": 15000,
+    "viteDisconnectMs": 45000,
+    "viteReconnectWindowMs": 45000
   }
 }
