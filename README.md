@@ -130,7 +130,95 @@ pnpm --filter @dsh-external/dsh-browser-bridge-extension zip
 
 完整的分步清单（本地链接、冻结安装、`pnpm check`、插件 profile 安装、解压扩展加载、更新、卸载及逐错误排查）见 **[INSTALL.md](INSTALL.md)**。
 
+## Vite Provider：无需扩展的页面接入
+
+Chrome Extension 与 Vite provider 是**互补**的接入方式，而非替代关系：
+
+| 维度 | Chrome Extension | Vite Provider |
+| --- | --- | --- |
+| 安装 | 加载解压扩展 | 零安装，Vite 插件注入 |
+| 页面 | 任意标签页（CDP） | 由当前 Vite 构建承载的页面 |
+| 能力 | 全部 `browser_*`（含截图、network） | 可靠子集：observe、inspect、act、navigate、wait、console |
+| 证据 | DOM、CDP、原生截图、浏览器级 console/network | DOM 语义投影、合成输入、HMR generation、console 缓冲 |
+| 前提 | Chrome 118+ | 页面由你的 Vite 构建注入 Runtime |
+
+### 安装与配置
+
+```bash
+pnpm add -D @dsh-external/dsh-browser-bridge-vite
+```
+
+```ts
+import { dshBrowserBridge } from '@dsh-external/dsh-browser-bridge-vite'
+
+export default defineConfig({
+  plugins: [
+    dshBrowserBridge({
+      dshOrigin: 'http://127.0.0.1:3080',
+      bridge: {
+        enabled: true,
+        injectInBuild: false,      // 生产构建默认不注入
+        autoConnectInBuild: false, // 显式注入后默认休眠
+      },
+      panel: {
+        enabled: true,             // false 只关闭嵌入 UI，bridge 仍可用
+        visible: false,            // true 仅做健康探测，成功后显示入口
+        shortcut: 'Alt+Shift+D',
+        queryParameter: 'dsh',
+      },
+    }),
+  ],
+})
+```
+
+- **开发环境默认自动连接**本地 DSH 并注册页面 target。
+- **生产构建默认不注入**；显式 `injectInBuild: true` 后仍默认**休眠**（零本地网络请求），只有快捷键、`?dsh=1` 或本地激活开关才会激活；`autoConnectInBuild: true` 才允许每个访问者主动探测并连接。
+- `dshOrigin` 只接受回环地址：`localhost`、`*.localhost`、`127.0.0.0/8`、`::1`。配置拒绝凭据、非 HTTP(S) 与远程地址，且不扫描端口。
+- 所有配置都会进入前端产物：schema 拒绝任何秘密形态的字段，不要把 token/密钥放进配置。
+
+### 引用与授权（与扩展一致的显式边界）
+
+- `@开发页面`：从本地 Host 回读所有已连接的 Vite target，可一次附加多个。
+- `@当前开发页`：仅当 DSH Web 嵌在目标页面（Shadow DOM 面板）中出现，指向承载当前面板的 target，且 targetId 与 origin 必须通过 Host 回读校验。
+- 附加只创建 composer 引用；发送 prompt 时才申请一次性 grant，绑定 session/turn/target；没有引用就没有模型工具。turn 完成、取消、移除、超时、页面关闭、跨 origin 离开都会撤销授权。
+
+### 可靠能力表
+
+| 工具 | Vite 支持 | 说明 |
+| --- | --- | --- |
+| `browser_observe` | ✅ | 有界语义 DOM 投影、ARIA、短生命周期引用 |
+| `browser_inspect` | ✅ | 属性/文本/白名单计算样式/几何/可见性，敏感值遮罩 |
+| `browser_act` | ✅ | click/type/select/focus/press/scroll；受控输入走原生 setter + input/change；hover 为合成事件（`synthetic: true, cssPseudoState: false`） |
+| `browser_navigate` | ✅ | 仅同源 URL/前进/后退/刷新；跨 origin 在导航前拒绝 |
+| `browser_wait` | ✅ | selector/text/url/ready/稳定窗口/下一 generation |
+| `browser_console` | ✅ | 注入后的 console、window error、unhandledrejection，有界 200 条并带 generation |
+| `browser_screenshot` | ❌ | 返回稳定 `unsupported_operation` |
+| `browser_network` | ❌ | 返回稳定 `unsupported_operation` |
+
+HMR 会使旧元素引用失效（`stale_element`），并递增 generation；断线后的写操作绝不自动重放。生产页面没有 HMR capability，generation 等待返回 `unsupported_operation`。
+
+### 本地 DSH-only 边界与 CSP
+
+- Runtime 只连接**本机回环** DSH；不保存 token、grant 或页面证据到 localStorage/扩展存储；唯一的持久化写入是用户显式激活开关。
+- 生产站点若设置 CSP，需在响应头中允许所选回环来源，例如：
+
+```text
+frame-src   http://127.0.0.1:* http://localhost:*;
+connect-src http://127.0.0.1:* http://localhost:*
+            ws://127.0.0.1:* ws://localhost:*;
+```
+
+插件不会放宽服务器响应头中的 CSP，只会给出文档与运行时诊断：面板嵌入失败显示 `embedding_blocked` 诊断与“在新标签页打开本地 DSH”的降级入口；本地网络/连接被阻止时显示失败横幅与重试。
+
+### 验收状态
+
+Chromium 自动化（Playwright）已覆盖注入、观察/操作、React/Vue 受控输入、HMR、多页面路由、unsupported 能力、HTTPS 生产 fixture 与 CSP 诊断（`e2e/vite-provider.spec.ts`、`e2e/vite-security.spec.ts`）。**真实 Chrome 与 Arc 人工门禁**按计划单独记录在
+[docs/testing/vite-provider-manual.md](docs/testing/vite-provider-manual.md)，截至 2026-08-11 状态为**未完成**（需要运行中的真实 DSH 实例），不得以 Chromium 结果推断通过。
+
 ## 设计文档
 
 - [设计文档（Approved design）](docs/superpowers/specs/2026-08-10-dsh-browser-bridge-design.md)
 - [实现计划（Implementation plan）](docs/superpowers/plans/2026-08-10-dsh-browser-bridge.md)
+- [Vite Provider 设计（Approved design）](docs/superpowers/specs/2026-08-11-dsh-browser-bridge-vite-design.md)
+- [Vite Provider 实现计划（Implementation plan）](docs/superpowers/plans/2026-08-11-dsh-browser-bridge-vite.md)
+- [Chrome/Arc 人工门禁（Manual gate）](docs/testing/vite-provider-manual.md)

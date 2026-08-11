@@ -102,6 +102,69 @@ settings. Only HTTP(S) tabs can be attached; Chrome-protected pages
   debugger sessions owned by the extension and closes its side panel.
 - To drop the local link: delete the `.dsh/source` symlink.
 
+## 8. Vite provider（可选）
+
+不安装扩展，把 DSH Browser Bridge 的页面 Runtime 注入到你的 Vite 页面：
+
+```bash
+pnpm add -D @dsh-external/dsh-browser-bridge-vite
+```
+
+完整的 `vite.config.ts` 示例：
+
+```ts
+import { defineConfig } from 'vite'
+import { dshBrowserBridge } from '@dsh-external/dsh-browser-bridge-vite'
+
+export default defineConfig({
+  plugins: [
+    dshBrowserBridge({
+      dshOrigin: 'http://127.0.0.1:3080',   // 本地 DSH 的回环 origin
+      bridge: {
+        enabled: true,
+        injectInBuild: false,                 // 生产构建默认不注入
+        autoConnectInBuild: false,            // 显式注入后默认休眠
+      },
+      panel: {
+        enabled: true,
+        visible: false,
+        shortcut: 'Alt+Shift+D',
+        queryParameter: 'dsh',
+      },
+      projectId: 'my-app',
+    }),
+  ],
+})
+```
+
+要点：
+
+- 开发服务器默认注入并自动连接本地 DSH；生产构建只有在 `injectInBuild: true` 时注入，且默认零网络请求。
+- `dshOrigin` 只接受回环地址（`localhost`、`*.localhost`、`127/8`、`::1`），拒绝凭据与远程地址；所有配置都会进入前端产物，禁止放入秘密。
+- `panel.enabled: false` 只关闭嵌入 UI；页面仍可从独立 DSH Web 的 `@开发页面` 附加。
+- 面板 iframe 使用最小 sandbox（`allow-scripts allow-same-origin allow-forms allow-popups allow-modals`），仅通过一次性 MessageChannel 通信并校验精确 origin。
+- 生产站点设置 CSP 时，需允许所选回环来源：
+
+  ```text
+  frame-src   http://127.0.0.1:* http://localhost:*;
+  connect-src http://127.0.0.1:* http://localhost:*
+              ws://127.0.0.1:* ws://localhost:*;
+  ```
+
+### Vite provider 排错
+
+| 错误码 / 症状 | 排查 |
+| --- | --- |
+| `dsh_unavailable` | 本地 DSH 未运行或健康检查失败：启动 `dsh web`，确认 `dshOrigin` 端口正确。 |
+| `local_access_blocked` | 浏览器阻止了本地网络/回环访问（如 CSP `connect-src`、本地网络权限）：允许所选回环来源后重试。 |
+| `embedding_blocked` | 面板 iframe 被阻止（CSP `frame-src`、`frame-ancestors`）：面板会显示具体诊断并提供“在新标签页打开本地 DSH”的降级入口；target 连接不受影响。 |
+| `target_disconnected` | 页面断线且未在恢复窗口内重连：重新加载页面并重新附加。 |
+| `unsupported_operation` | 对 Vite target 调用了截图/network，或请求了 trusted 输入：改用 Chrome Extension 附加该页面。 |
+| `stale_element` | HMR、导航或 DOM 替换使引用失效：重新 observe 获取新引用。 |
+| `protocol_mismatch` | 页面 Runtime 与 Host 的页面协议版本不一致：更新两者到同一构建。 |
+| `timeout` | 探测、连接、工具或等待超过有界时间：重试或收窄请求。 |
+| 页面没有任何网络请求 | 生产默认休眠：用快捷键、`?dsh=1` 或本地激活开关激活；或显式设置 `autoConnectInBuild: true`。 |
+
 ## Troubleshooting
 
 | Symptom | Likely cause and action |

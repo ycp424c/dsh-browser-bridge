@@ -116,6 +116,9 @@ function waitForDomQuiet(ctx: WaitContext): Promise<void> {
 export async function waitForCondition(ctx: WaitContext): Promise<Record<string, unknown>> {
   const timeoutMs = ctx.args.timeoutMs ?? DEFAULT_TIMEOUT_MS
   let hardTimer: ReturnType<typeof setTimeout> | null = null
+  // The inner signal stops the poll/observer as soon as the race settles,
+  // so a losing side never keeps polling or rejects unhandled.
+  const inner = new AbortController()
   try {
     const outcome: unknown = await Promise.race([
       (async () => {
@@ -130,7 +133,7 @@ export async function waitForCondition(ctx: WaitContext): Promise<Record<string,
           }
           return { ok: true, generation }
         }
-        await poll(ctx)
+        await poll({ ...ctx, signal: AbortSignal.any([ctx.signal, inner.signal]) })
         return { ok: true }
       })(),
       new Promise<never>((_resolve, reject) => {
@@ -141,6 +144,7 @@ export async function waitForCondition(ctx: WaitContext): Promise<Record<string,
     ])
     return outcome as Record<string, unknown>
   } finally {
+    inner.abort()
     if (hardTimer !== null) clearTimeout(hardTimer)
   }
 }

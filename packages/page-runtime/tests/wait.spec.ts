@@ -128,9 +128,16 @@ describe('wait for condition', () => {
     vi.useFakeTimers()
     document.body.innerHTML = ''
     const { wait } = makeWaitContext()
+    // Attach the rejection handler synchronously: the hard timer rejects
+    // during the timer advance, before any later await.
     const pending = wait({ kind: 'selector', selector: '#never', state: 'attached' }, new AbortController().signal, 500)
+    const outcome = pending.then(
+      value => ({ ok: true, value }),
+      error => ({ ok: false, error }),
+    )
     await vi.advanceTimersByTimeAsync(600)
-    await expect(pending).rejects.toMatchObject({ code: 'timeout' })
+    const settled = await outcome
+    expect(settled).toMatchObject({ ok: false, error: { code: 'timeout' } })
   })
 
   it('aborts on the signal', async () => {
