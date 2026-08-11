@@ -8,6 +8,8 @@ export const BRIDGE_ERROR_CODES = [
   'bridge_disconnected', 'grant_expired', 'tab_closed', 'unsupported_page',
   'debugger_busy', 'debugger_detached', 'navigation_requires_confirmation',
   'stale_element', 'timeout', 'protocol_mismatch', 'permission_denied', 'internal',
+  'dsh_unavailable', 'local_access_blocked', 'embedding_blocked',
+  'target_disconnected', 'unsupported_operation',
 ] as const
 
 export type BridgeErrorCode = typeof BRIDGE_ERROR_CODES[number]
@@ -47,4 +49,9 @@ export const BRIDGE_ERROR_RECOVERY: Record<BridgeErrorCode, string> = {
   protocol_mismatch: 'The extension and host speak different protocol versions; update one of them.',
   permission_denied: 'The operation was refused by the grant or extension boundary.',
   internal: 'An internal failure occurred; check the host log for the stable error code.',
+  dsh_unavailable: 'The configured local DSH is not running or its health check failed; start local DSH and retry.',
+  local_access_blocked: 'The browser blocked local network or loopback access; allow the local DSH origin (for example in CSP or local network permissions) and retry.',
+  embedding_blocked: 'The browser blocked embedding local DSH Web (CSP frame-src, frame-ancestors, or iframe policy); use the new-tab fallback or adjust the response headers.',
+  target_disconnected: 'The target page disconnected and did not reconnect within the recovery window; reopen or reload the page and attach it again.',
+  unsupported_operation: 'The target provider does not support this operation; use a Chrome-extension page for screenshots, network, or trusted input.',
 }

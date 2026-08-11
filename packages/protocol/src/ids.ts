@@ -19,6 +19,8 @@ export type GrantHandle = Branded<'GrantHandle'>
 export type RequestId = Branded<'RequestId'>
 /** Short-lived element reference returned by `browser_observe`. */
 export type ElementRef = Branded<'ElementRef'>
+/** Identity of one Vite page target (per-tab sessionStorage, not authority). */
+export type TargetId = Branded<'TargetId'>
 
 export const ConnectionId = (value: string): ConnectionId => value as ConnectionId
 export const PairingNonce = (value: string): PairingNonce => value as PairingNonce
@@ -26,6 +28,7 @@ export const GrantId = (value: string): GrantId => value as GrantId
 export const GrantHandle = (value: string): GrantHandle => value as GrantHandle
 export const RequestId = (value: string): RequestId => value as RequestId
 export const ElementRef = (value: string): ElementRef => value as ElementRef
+export const TargetId = (value: string): TargetId => value as TargetId
 
 const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'
 
@@ -61,3 +64,5 @@ export const newGrantHandle = (): GrantHandle => GrantHandle(randomBase64url(32)
 export const newRequestId = (): RequestId => RequestId(randomBase64url(32))
 /** Element references are shorter (16 bytes) but still unguessable. */
 export const newElementRef = (): ElementRef => ElementRef(randomBase64url(16))
+/** Target ids are random 32-byte base64url identifiers (43 chars). */
+export const newTargetId = (): TargetId => TargetId(randomBase64url(32))
