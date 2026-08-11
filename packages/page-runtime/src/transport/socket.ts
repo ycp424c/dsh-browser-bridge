@@ -24,7 +24,8 @@ export interface PageWebSocket {
   send(text: string): void
   close(): void
   onopen: (() => void) | null
-  onmessage: ((data: string) => void) | null
+  /** Receives MessageEvents, like the real WebSocket. */
+  onmessage: ((event: MessageEvent) => void) | null
   onclose: (() => void) | null
   onerror: (() => void) | null
 }
@@ -110,7 +111,10 @@ export class PageSocket {
       this.sendFrame({ v: VITE_PAGE_PROTOCOL_VERSION, type: 'hello' })
       this.sendFrame({ v: VITE_PAGE_PROTOCOL_VERSION, type: 'target.register', target: this.options.descriptor() })
     }
-    socket.onmessage = (data: string) => this.receive(data)
+    socket.onmessage = (event: MessageEvent) => {
+      const data = event.data
+      this.receive(typeof data === 'string' ? data : String(data))
+    }
     socket.onclose = () => this.handleClose()
     socket.onerror = () => {
       // The close event drives recovery.

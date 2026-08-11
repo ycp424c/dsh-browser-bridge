@@ -165,9 +165,15 @@ export function startPageRuntime(config: PageRuntimeConfig): PageRuntime {
     openPanel: () => panel?.open(),
     onState: state => {
       // visible=true shows the launcher only after a successful probe; a
-      // connected bridge updates the drawer banner.
+      // connected bridge updates the drawer banner; a failed activation
+      // opens the drawer with the diagnostic and the new-tab fallback so
+      // blocked local access is never silent.
       if (state === 'available') panel?.showLauncher()
-      if (state === 'failed') panel?.setConnection('failed')
+      if (state === 'failed') {
+        panel?.open()
+        panel?.setConnection('failed')
+        panel?.showDiagnostic()
+      }
       if (state === 'connecting') panel?.setConnection('connecting')
       if (state === 'connected') panel?.setConnection('connected')
     },

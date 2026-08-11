@@ -55,6 +55,15 @@ export class PanelChannel {
   init(): void {
     if (this.inited) return
     this.inited = true
+    // The ready reply must arrive within the bound from OPEN, not from
+    // load: a CSP-blocked iframe never fires load, and the panel must still
+    // surface embedding_blocked with its fallback instead of hanging.
+    this.timer = setTimeout(() => {
+      this.settle()
+      // Embedding failed, not the target connection: the runtime keeps
+      // running and the panel offers its new-tab fallback.
+      for (const handler of [...this.errorHandlers]) handler('embedding_blocked')
+    }, this.timeoutMs)
     this.env.onIframeLoad(() => {
       if (this.settled) return
       const channel = this.messageChannelFactory()
@@ -72,12 +81,6 @@ export class PanelChannel {
         this.dshOrigin,
         [channel.port2],
       )
-      this.timer = setTimeout(() => {
-        this.settle()
-        // Embedding failed, not the target connection: the runtime keeps
-        // running and the panel offers its new-tab fallback.
-        for (const handler of [...this.errorHandlers]) handler('embedding_blocked')
-      }, this.timeoutMs)
     })
   }
 

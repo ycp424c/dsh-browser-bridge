@@ -129,6 +129,17 @@ describe('shadow dom panel', () => {
     expect(activate).toHaveBeenCalled()
   })
 
+  it('showDiagnostic reveals the exact-origin fallback', () => {
+    const { panel } = makePanel(baseConfig())
+    panel!.open()
+    expect(inShadow('a.dsh-bb-fallback')?.hasAttribute('hidden')).toBe(true)
+    panel!.setConnection('failed')
+    panel!.showDiagnostic()
+    const fallback = inShadow('a.dsh-bb-fallback') as HTMLAnchorElement | null
+    expect(fallback?.hasAttribute('hidden')).toBe(false)
+    expect(fallback!.href).toBe(DSH_ORIGIN + '/')
+  })
+
   it('dispose removes the DOM, the channel, and every listener', () => {
     const { panel, channel } = makePanel(baseConfig())
     panel!.open()

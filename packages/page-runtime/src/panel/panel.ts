@@ -39,6 +39,8 @@ export interface Panel {
   hideLauncher(): void
   open(): void
   setConnection(state: PanelConnectionState, error?: string): void
+  /** Reveal the open-local-DSH fallback (failure diagnostics). */
+  showDiagnostic(): void
   dispose(): void
 }
 
@@ -58,6 +60,7 @@ export function createPanel(options: PanelOptions): Panel | null {
   let channel: PanelChannelLike | null = null
   let drawer: HTMLElement | null = null
   let launcher: HTMLButtonElement | null = null
+  let fallback: HTMLAnchorElement | null = null
   let disposed = false
 
   const ensureHost = (): ShadowRoot => {
@@ -107,7 +110,7 @@ export function createPanel(options: PanelOptions): Panel | null {
       const actions = el('div', 'dsh-bb-actions')
       const retry = el('button', 'dsh-bb-retry', 'Retry')
       retry.addEventListener('click', () => options.onActivate())
-      const fallback = el('a', 'dsh-bb-fallback', 'Open local DSH in a new tab')
+      fallback = el('a', 'dsh-bb-fallback', 'Open local DSH in a new tab')
       fallback.href = options.dshOrigin
       fallback.target = '_blank'
       fallback.rel = 'noopener noreferrer'
@@ -144,7 +147,7 @@ export function createPanel(options: PanelOptions): Panel | null {
       wired.onReady(() => panel.setConnection('connected'))
       wired.onError(code => {
         panel.setConnection('failed', code)
-        fallback.hidden = false
+        if (fallback !== null) fallback.hidden = false
       })
       wired.init()
     },
@@ -156,6 +159,10 @@ export function createPanel(options: PanelOptions): Panel | null {
       banner.textContent = error === undefined
         ? `local DSH: ${state}`
         : `local DSH: ${state} (${error})`
+    },
+    showDiagnostic: () => {
+      if (disposed || fallback === null) return
+      fallback.hidden = false
     },
     dispose: () => {
       if (disposed) return

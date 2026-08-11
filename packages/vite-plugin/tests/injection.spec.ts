@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
+import type { AddressInfo } from 'node:net'
 import { createServer, type ViteDevServer } from 'vite'
 import { dshBrowserBridge } from '../src/index.ts'
 
@@ -12,8 +13,9 @@ async function makeServer(options: Parameters<typeof dshBrowserBridge>[0]): Prom
     root: import.meta.dirname,
     logLevel: 'silent',
     plugins: [dshBrowserBridge(options)],
-    server: { middlewareMode: true },
+    server: { host: '127.0.0.1', port: 0 },
   })
+  await instance.listen()
   server = instance
   return instance
 }
@@ -34,8 +36,10 @@ describe('vite dev injection', () => {
     const instance = await makeServer({ dshOrigin: 'http://127.0.0.1:3080' })
     const html = await transform(instance)
     const scripts = html.match(/<script[^>]*type="module"[^>]*>/g) ?? []
-    // Vite injects its own client; the plugin adds exactly ONE runtime tag.
-    expect(scripts.filter(script => script.includes('virtual:dsh-browser-bridge/runtime'))).toHaveLength(1)
+    // Vite injects its own client plus one html-proxy for the plugin's
+    // inline runtime import.
+    expect(scripts.filter(script => script.includes('/@vite/client'))).toHaveLength(1)
+    expect(scripts.filter(script => script.includes('/@id/'))).toHaveLength(1)
   })
 
   it('injects nothing when bridge.enabled=false', async () => {
@@ -52,10 +56,14 @@ describe('vite dev injection', () => {
       panel: { enabled: false },
     })
     const html = await transform(instance)
-    const match = html.match(/src="([^"]*virtual:dsh-browser-bridge\/runtime[^"]*)"/)
-    expect(match).not.toBeNull()
-    const module = await instance.transformRequest(match![1]!)
-    const code = module?.code ?? ''
+    // Vite rewrites the inline import into an html-proxy script tag.
+    expect(html).toMatch(/src="[^"]*\/\@id\/[^"]*html-proxy[^"]*"/)
+    // The virtual runtime module serves the serialized config through the
+    // real dev-server resolution pipeline.
+    const address = instance.httpServer!.address() as AddressInfo
+    const response = await fetch(`http://127.0.0.1:${address.port}/@id/virtual:dsh-browser-bridge/runtime`)
+    expect(response.ok).toBe(true)
+    const code = await response.text()
     expect(code).toContain('startPageRuntime')
     expect(code).toContain('"mode":"development"')
     expect(code).toContain('"projectId":"fixture"')

@@ -189,3 +189,75 @@ export class FixtureServer {
 `
   }
 }
+
+/**
+ * Static file server over HTTP or HTTPS with optional response headers
+ * (used for CSP variants of the production fixtures). Serves `index.html`
+ * for `/` and guesses content types from the extension.
+ */
+import { createServer as createHttpsServer, type Server as HttpsServer } from 'node:https'
+import { createReadStream, existsSync, statSync } from 'node:fs'
+
+const CONTENT_TYPES: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.ico': 'image/x-icon',
+}
+
+export interface StaticServerOptions {
+  root: string
+  tls?: { key: string; cert: string }
+  headers?: Record<string, string>
+}
+
+export class StaticServer {
+  private server: ReturnType<typeof createServer> | HttpsServer | undefined
+  readonly host = '127.0.0.1'
+  port = 0
+  private readonly root: string
+  private readonly tls: { key: string; cert: string } | undefined
+  private readonly headers: Record<string, string>
+
+  constructor(options: StaticServerOptions) {
+    this.root = options.root
+    this.tls = options.tls
+    this.headers = options.headers ?? {}
+  }
+
+  get origin(): string {
+    const protocol = this.tls === undefined ? 'http' : 'https'
+    return `${protocol}://${this.host}:${this.port}`
+  }
+
+  async start(): Promise<void> {
+    const handler = (req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse): void => {
+      const path = new URL(req.url ?? '/', 'http://x').pathname
+      let file = path === '/' ? '/index.html' : path
+      let full = `${this.root}${file}`
+      if (!existsSync(full) || statSync(full).isDirectory()) {
+        full = `${this.root}/index.html`
+        file = '/index.html'
+      }
+      for (const [name, value] of Object.entries(this.headers)) res.setHeader(name, value)
+      const type = CONTENT_TYPES[file.slice(file.lastIndexOf('.'))] ?? 'application/octet-stream'
+      res.writeHead(200, { 'content-type': type, 'cache-control': 'no-store' })
+      createReadStream(full).pipe(res)
+    }
+    const server = this.tls === undefined
+      ? createServer(handler)
+      : createHttpsServer({ key: this.tls.key, cert: this.tls.cert }, handler)
+    this.server = server
+    await new Promise<void>(resolve => {
+      server.listen(0, this.host, () => resolve())
+    })
+    this.port = (server.address() as AddressInfo).port
+  }
+
+  close(): void {
+    this.server?.close()
+  }
+}

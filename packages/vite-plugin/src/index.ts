@@ -53,13 +53,15 @@ export function dshBrowserBridge(options: DshBrowserBridgeOptions): Plugin {
       order: 'pre',
       handler(html, context) {
         if (!inject) return html
-        // One module script per HTML entry referencing the virtual runtime.
+        // One module script per HTML entry. The virtual id is NOT a loadable
+        // URL, so the script imports it inline and Vite resolves it.
         return {
           html,
           tags: [
             {
               tag: 'script',
-              attrs: { type: 'module', src: VIRTUAL_RUNTIME_ID },
+              attrs: { type: 'module' },
+              children: `import '${VIRTUAL_RUNTIME_ID}'`,
               injectTo: 'head-prepend',
             },
           ],

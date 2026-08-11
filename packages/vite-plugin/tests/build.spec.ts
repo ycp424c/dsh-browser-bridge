@@ -73,8 +73,9 @@ describe('vite build injection', () => {
     for (const name of ['index.html', 'admin.html']) {
       const html = await readAsset(name)
       const scripts = html.match(/<script[^>]*type="module"[^>]*>/g) ?? []
+      // Exactly one module script: the inline import of the virtual runtime
+      // (rolldown hoists it into a hashed asset and rewrites the tag).
       expect(scripts).toHaveLength(1)
-      // In production the virtual entry is bundled into a hashed asset.
       expect(scripts[0]).toMatch(/src="\/assets\/[^"]+\.js"/)
     }
   })
