@@ -62,6 +62,9 @@ export function startPageRuntime(config: PageRuntimeConfig): PageRuntime {
 
   let socket: PageSocket | null = null
   let activator: Activator | null = null
+  /** The in-flight first-registration readiness; shared by concurrent
+   *  activates so a retry while one attempt is pending never double-wires. */
+  let connecting: Promise<void> | null = null
 
   const wsUrl = (): string => {
     const parsed = new URL(dshOrigin)
@@ -145,19 +148,45 @@ export function startPageRuntime(config: PageRuntimeConfig): PageRuntime {
   dispatcher.register('console', CONSOLE_ARGS_SCHEMA, async () =>
     ({ rows: consoleCapture.rows() }) as unknown as JsonValue)
 
+  /**
+   * Connect and register. The returned promise resolves ONLY after the
+   * exact `target.registered` frame: the Activator can never mark the
+   * bridge "connected" while the host has not acknowledged the target.
+   * A failed activation (handshake close, terminal error, registration
+   * timeout) releases the socket and its timers so an explicit Retry
+   * starts from a clean slate instead of reusing a stale socket that
+   * would make connect() "succeed" with no live connection.
+   */
   const connect = async (): Promise<void> => {
-    if (socket !== null) return
-    // The console evidence window opens with the connection; the buffer
-    // clears on revoke.
-    consoleCapture.start()
-    socket = new PageSocket({
+    // An already-registered bridge (or one mid-reconnect) needs no new
+    // registration wait: reconnects stay transparent.
+    if (socket !== null && connecting === null) return
+    if (connecting !== null) return connecting
+    const next = new PageSocket({
       url: wsUrl(),
       descriptor: () => buildDescriptor(generationState.value),
       dispatcher,
     })
-    socket.connect()
+    socket = next
     // Console evidence dies with the target's grant.
-    socket.onRevoke(() => consoleCapture.clear())
+    next.onRevoke(() => consoleCapture.clear())
+    connecting = (async () => {
+      try {
+        await next.connect()
+        // The console evidence window opens with a live, registered
+        // target; a failed activation never wraps the page console.
+        consoleCapture.start()
+      } catch (error) {
+        if (socket === next) {
+          next.close()
+          socket = null
+        }
+        throw error
+      } finally {
+        connecting = null
+      }
+    })()
+    return connecting
   }
 
   // Optional Shadow DOM panel: enabled=false creates no UI while the

@@ -8,6 +8,9 @@ import { probeLocalDsh } from '../src/probe.ts'
 
 const URL_WS = 'ws://127.0.0.1:3080/dsh-browser-bridge/vite/ws'
 
+/** Every PageSocket created by makeSocket, closed after each test. */
+const createdSockets = new Set<PageSocket>()
+
 const DESCRIPTOR: ViteBrowserTargetDescriptor = {
   targetId: 't'.repeat(43) as never,
   provider: 'vite',
@@ -70,8 +73,8 @@ function makeDispatcher(calls: Array<{ operation: string; args: unknown; signal:
 
 function makeSocket(
   calls: Array<{ operation: string; args: unknown; signal: AbortSignal }>,
-  options: { heartbeatMs?: number; backoffBaseMs?: number; backoffMaxMs?: number } = {},
-): { socket: PageSocket; sockets: FakeWebSocket[]; dispatcher: PageDispatcher } {
+  options: { heartbeatMs?: number; backoffBaseMs?: number; backoffMaxMs?: number; registerTimeoutMs?: number } = {},
+): { socket: PageSocket; sockets: FakeWebSocket[]; dispatcher: PageDispatcher; ready: Promise<void> } {
   const sockets: FakeWebSocket[] = []
   const dispatcher = makeDispatcher(calls)
   const socket = new PageSocket({
@@ -81,18 +84,60 @@ function makeSocket(
     heartbeatMs: options.heartbeatMs ?? 15_000,
     backoffBaseMs: options.backoffBaseMs ?? 250,
     backoffMaxMs: options.backoffMaxMs ?? 5_000,
+    ...(options.registerTimeoutMs !== undefined ? { registerTimeoutMs: options.registerTimeoutMs } : {}),
     connectImpl: url => {
       const fake = new FakeWebSocket(url)
       sockets.push(fake)
       return fake
     },
   })
-  socket.connect()
-  return { socket, sockets, dispatcher }
+  const ready = socket.connect()
+  // Harness-level guard: tests that close the socket before registration
+  // assert the rejection explicitly; the guard keeps the pending promise
+  // from surfacing as an unhandled rejection in unrelated tests.
+  ready.catch(() => {})
+  createdSockets.add(socket)
+  return { socket, sockets, dispatcher, ready }
+}
+
+const TARGET_REGISTERED = JSON.stringify({
+  v: VITE_PAGE_PROTOCOL_VERSION,
+  type: 'target.registered',
+  targetId: DESCRIPTOR.targetId,
+})
+
+const HEALTH_JSON = JSON.stringify({
+  ok: true,
+  protocol: 'vite-page',
+  version: VITE_PAGE_PROTOCOL_VERSION,
+})
+
+/** The exact JSON body the real DSH host serves at /health. */
+function healthResponse(options: {
+  status?: number
+  body?: string
+  headers?: Record<string, string>
+} = {}): Response {
+  return new Response(options.body ?? HEALTH_JSON, {
+    status: options.status ?? 200,
+    headers: { 'content-type': 'application/json', ...options.headers },
+  })
+}
+
+/** A response streaming its body in one chunk (no content-length). */
+function streamedResponse(body: string, status = 200): Response {
+  const encoder = new TextEncoder()
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(encoder.encode(body))
+      controller.close()
+    },
+  })
+  return new Response(stream, { status })
 }
 
 describe('local DSH probe', () => {
-  it('reaches only the exact health endpoint without scanning ports', async () => {
+  it('reaches only the exact health endpoint and accepts the exact host JSON', async () => {
     const urls: string[] = []
     let init: RequestInit | undefined
     const ok = await probeLocalDsh({
@@ -100,7 +145,7 @@ describe('local DSH probe', () => {
       fetchImpl: (async (url: unknown, requestInit?: RequestInit) => {
         urls.push(String(url))
         init = requestInit
-        return { ok: true, type: 'basic' } as unknown as Response
+        return healthResponse()
       }) as typeof fetch,
     })
     expect(ok).toBe(true)
@@ -125,10 +170,125 @@ describe('local DSH probe', () => {
     })
     expect(throwing).toBe(false)
   })
+
+  it('rejects a 200 HTML SPA fallback even though the status is ok', async () => {
+    const ok = await probeLocalDsh({
+      dshOrigin: 'http://127.0.0.1:3080',
+      fetchImpl: (async () => new Response(
+        '<!doctype html><html><body><div id="app"></div><script src="/assets/index.js"></script></body></html>',
+        { status: 200, headers: { 'content-type': 'text/html' } },
+      )) as typeof fetch,
+    })
+    expect(ok).toBe(false)
+  })
+
+  it('rejects an HTML body even without a content-type header', async () => {
+    const ok = await probeLocalDsh({
+      dshOrigin: 'http://127.0.0.1:3080',
+      fetchImpl: (async () => new Response('<!doctype html><html><body>DSH</body></html>', { status: 200 })) as typeof fetch,
+    })
+    expect(ok).toBe(false)
+  })
+
+  it('rejects a wrong protocol version', async () => {
+    const wrongVersion = JSON.stringify({ ok: true, protocol: 'vite-page', version: 999 })
+    expect(await probeLocalDsh({
+      dshOrigin: 'http://127.0.0.1:3080',
+      fetchImpl: (async () => healthResponse({ body: wrongVersion })) as typeof fetch,
+    })).toBe(false)
+    // A string version never equals the numeric protocol version.
+    const stringVersion = JSON.stringify({ ok: true, protocol: 'vite-page', version: String(VITE_PAGE_PROTOCOL_VERSION) })
+    expect(await probeLocalDsh({
+      dshOrigin: 'http://127.0.0.1:3080',
+      fetchImpl: (async () => healthResponse({ body: stringVersion })) as typeof fetch,
+    })).toBe(false)
+  })
+
+  it('rejects a wrong or missing protocol field', async () => {
+    const wrongProtocol = JSON.stringify({ ok: true, protocol: 'chrome-extension', version: VITE_PAGE_PROTOCOL_VERSION })
+    expect(await probeLocalDsh({
+      dshOrigin: 'http://127.0.0.1:3080',
+      fetchImpl: (async () => healthResponse({ body: wrongProtocol })) as typeof fetch,
+    })).toBe(false)
+    const missing = JSON.stringify({ ok: true, version: VITE_PAGE_PROTOCOL_VERSION })
+    expect(await probeLocalDsh({
+      dshOrigin: 'http://127.0.0.1:3080',
+      fetchImpl: (async () => healthResponse({ body: missing })) as typeof fetch,
+    })).toBe(false)
+  })
+
+  it('rejects a missing or false ok field', async () => {
+    const noOk = JSON.stringify({ protocol: 'vite-page', version: VITE_PAGE_PROTOCOL_VERSION })
+    expect(await probeLocalDsh({
+      dshOrigin: 'http://127.0.0.1:3080',
+      fetchImpl: (async () => healthResponse({ body: noOk })) as typeof fetch,
+    })).toBe(false)
+    const notOk = JSON.stringify({ ok: false, protocol: 'vite-page', version: VITE_PAGE_PROTOCOL_VERSION })
+    expect(await probeLocalDsh({
+      dshOrigin: 'http://127.0.0.1:3080',
+      fetchImpl: (async () => healthResponse({ body: notOk })) as typeof fetch,
+    })).toBe(false)
+  })
+
+  it('rejects malformed JSON and non-object payloads', async () => {
+    for (const body of ['{"ok": true', 'null', '"vite-page"', '42', '']) {
+      const rejected = await probeLocalDsh({
+        dshOrigin: 'http://127.0.0.1:3080',
+        fetchImpl: (async () => healthResponse({ body })) as typeof fetch,
+      })
+      expect(rejected).toBe(false)
+    }
+  })
+
+  it('rejects non-2xx responses even with a valid JSON body', async () => {
+    for (const status of [301, 403, 404, 500, 503]) {
+      const rejected = await probeLocalDsh({
+        dshOrigin: 'http://127.0.0.1:3080',
+        fetchImpl: (async () => healthResponse({ status, body: HEALTH_JSON })) as typeof fetch,
+      })
+      expect(rejected).toBe(false)
+    }
+  })
+
+  it('rejects a non-JSON content type even when the body parses', async () => {
+    const rejected = await probeLocalDsh({
+      dshOrigin: 'http://127.0.0.1:3080',
+      fetchImpl: (async () => healthResponse({ headers: { 'content-type': 'text/plain' } })) as typeof fetch,
+    })
+    expect(rejected).toBe(false)
+  })
+
+  it('rejects a body larger than the bound declared in content-length', async () => {
+    const big = 'x'.repeat(10_000)
+    const rejected = await probeLocalDsh({
+      dshOrigin: 'http://127.0.0.1:3080',
+      fetchImpl: (async () => healthResponse({ body: big, headers: { 'content-length': '10000' } })) as typeof fetch,
+    })
+    expect(rejected).toBe(false)
+  })
+
+  it('rejects a body that streams past the bound without a content-length', async () => {
+    const rejected = await probeLocalDsh({
+      dshOrigin: 'http://127.0.0.1:3080',
+      fetchImpl: (async () => streamedResponse('x'.repeat(10_000))) as typeof fetch,
+    })
+    expect(rejected).toBe(false)
+  })
+
+  it('accepts the exact host JSON with extra unknown fields', async () => {
+    const body = JSON.stringify({ ok: true, protocol: 'vite-page', version: VITE_PAGE_PROTOCOL_VERSION, note: 'extra' })
+    const ok = await probeLocalDsh({
+      dshOrigin: 'http://127.0.0.1:3080',
+      fetchImpl: (async () => healthResponse({ body })) as typeof fetch,
+    })
+    expect(ok).toBe(true)
+  })
 })
 
 describe('page socket', () => {
   afterEach(() => {
+    for (const socket of createdSockets) socket.close()
+    createdSockets.clear()
     vi.useRealTimers()
   })
 
@@ -315,6 +475,145 @@ describe('page socket', () => {
     first.close()
     vi.advanceTimersByTime(60_000)
     expect(sockets).toHaveLength(1)
+    vi.useRealTimers()
+  })
+
+  it('the connect promise stays pending until the exact target.registered frame', async () => {
+    const calls: Array<{ operation: string; args: unknown; signal: AbortSignal }> = []
+    const { sockets, ready } = makeSocket(calls)
+    const fake = sockets[0]!
+    fake.open()
+    // hello and target.register went out; no registration yet.
+    expect(fake.sentOf('target.register')).toBeDefined()
+    let settled = false
+    void ready.then(() => { settled = true }, () => { settled = true })
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(settled).toBe(false)
+    fake.receive(TARGET_REGISTERED)
+    await expect(ready).resolves.toBeUndefined()
+    expect(settled).toBe(true)
+  })
+
+  it('a malformed target.registered frame does not resolve the connect promise', async () => {
+    const calls: Array<{ operation: string; args: unknown; signal: AbortSignal }> = []
+    const { sockets, ready } = makeSocket(calls)
+    const fake = sockets[0]!
+    fake.open()
+    // Missing targetId fails the strict host-frame schema.
+    fake.receive(JSON.stringify({ v: VITE_PAGE_PROTOCOL_VERSION, type: 'target.registered' }))
+    let settled = false
+    void ready.then(() => { settled = true }, () => { settled = true })
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(settled).toBe(false)
+    fake.receive(TARGET_REGISTERED)
+    await expect(ready).resolves.toBeUndefined()
+  })
+
+  it('a close before the first registration rejects the connect promise', async () => {
+    vi.useFakeTimers()
+    const calls: Array<{ operation: string; args: unknown; signal: AbortSignal }> = []
+    const { socket, sockets, ready } = makeSocket(calls, { backoffBaseMs: 250, backoffMaxMs: 250 })
+    const fake = sockets[0]!
+    fake.open()
+    fake.close()
+    await expect(ready).rejects.toThrow(/before target registration/)
+    // The failed initial handshake must not leave a reconnect loop behind.
+    socket.close()
+    vi.advanceTimersByTime(60_000)
+    expect(sockets).toHaveLength(1)
+    vi.useRealTimers()
+  })
+
+  it('a protocol_mismatch error frame before registration rejects the connect promise', async () => {
+    const calls: Array<{ operation: string; args: unknown; signal: AbortSignal }> = []
+    const { sockets, ready } = makeSocket(calls)
+    const fake = sockets[0]!
+    fake.open()
+    fake.receive(JSON.stringify({
+      v: VITE_PAGE_PROTOCOL_VERSION,
+      type: 'error',
+      code: 'protocol_mismatch',
+      message: 'unsupported vite page protocol version',
+      retryable: false,
+    }))
+    await expect(ready).rejects.toThrow(/protocol_mismatch/)
+  })
+
+  it('a permission_denied error frame before registration rejects the connect promise', async () => {
+    const calls: Array<{ operation: string; args: unknown; signal: AbortSignal }> = []
+    const { sockets, ready } = makeSocket(calls)
+    const fake = sockets[0]!
+    fake.open()
+    fake.receive(JSON.stringify({
+      v: VITE_PAGE_PROTOCOL_VERSION,
+      type: 'error',
+      code: 'permission_denied',
+      message: 'vite target origin is not loopback or allowed',
+      retryable: false,
+    }))
+    await expect(ready).rejects.toThrow(/permission_denied/)
+  })
+
+  it('the connect promise rejects when registration times out', async () => {
+    vi.useFakeTimers()
+    const calls: Array<{ operation: string; args: unknown; signal: AbortSignal }> = []
+    const { sockets, ready } = makeSocket(calls, { registerTimeoutMs: 5_000 })
+    const fake = sockets[0]!
+    fake.open()
+    let settled = false
+    void ready.then(() => { settled = true }, () => { settled = true })
+    vi.advanceTimersByTime(4_999)
+    expect(settled).toBe(false)
+    vi.advanceTimersByTime(1)
+    await expect(ready).rejects.toThrow(/registration timed out/)
+    vi.useRealTimers()
+  })
+
+  it('close() settles a pending registration (dispose path)', async () => {
+    const calls: Array<{ operation: string; args: unknown; signal: AbortSignal }> = []
+    const { socket, sockets, ready } = makeSocket(calls)
+    sockets[0]!.open()
+    socket.close()
+    await expect(ready).rejects.toThrow(/closed/)
+  })
+
+  it('a retry after a failed registration opens a fresh registration window', async () => {
+    vi.useFakeTimers()
+    const calls: Array<{ operation: string; args: unknown; signal: AbortSignal }> = []
+    const { socket, sockets, ready } = makeSocket(calls, { backoffBaseMs: 250, backoffMaxMs: 250 })
+    const first = sockets[0]!
+    first.open()
+    first.close()
+    await expect(ready).rejects.toThrow(/before target registration/)
+    const retried = socket.connect()
+    retried.catch(() => {})
+    const second = sockets[1]!
+    second.open()
+    second.receive(TARGET_REGISTERED)
+    await expect(retried).resolves.toBeUndefined()
+    // The backoff timer of the failed first attempt must not fire a third
+    // socket on top of the fresh registration window.
+    vi.advanceTimersByTime(60_000)
+    expect(sockets).toHaveLength(2)
+    vi.useRealTimers()
+  })
+
+  it('reconnects after a successful registration without a new registration wait', async () => {
+    vi.useFakeTimers()
+    const calls: Array<{ operation: string; args: unknown; signal: AbortSignal }> = []
+    const { socket, sockets, ready } = makeSocket(calls, { backoffBaseMs: 250, backoffMaxMs: 250 })
+    const first = sockets[0]!
+    first.open()
+    first.receive(TARGET_REGISTERED)
+    await expect(ready).resolves.toBeUndefined()
+    // The registered bridge drops and reconnects transparently.
+    first.close()
+    vi.advanceTimersByTime(250)
+    const second = sockets[1]!
+    second.open()
+    expect(second.frames().map(frame => frame.type)).toEqual(['hello', 'target.register'])
     vi.useRealTimers()
   })
 })

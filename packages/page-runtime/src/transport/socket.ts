@@ -44,6 +44,13 @@ export interface PageSocketOptions {
   /** Exponential backoff bounds (defaults 250ms base, 5s cap). */
   backoffBaseMs?: number
   backoffMaxMs?: number
+  /**
+   * Bound on how long the FIRST registration may take before the connect
+   * promise rejects (default 10s). A handshake failure or a host that
+   * never answers target.registered can therefore never leave activation
+   * stuck in "connecting".
+   */
+  registerTimeoutMs?: number
   connectImpl?(url: string): PageWebSocket
 }
 
@@ -59,20 +66,50 @@ export class PageSocket {
   private socket: PageWebSocket | null = null
   private connected = false
   private closeRequested = false
+  private registered = false
   private reconnectAttempt = 0
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null
   private readonly inFlight = new Map<string, InFlightCall>()
   private readonly revokeHandlers = new Set<() => void>()
+  /** The first-registration readiness promise; null once settled. */
+  private resolveRegistration: (() => void) | null = null
+  private rejectRegistration: ((error: Error) => void) | null = null
+  private registerTimer: ReturnType<typeof setTimeout> | null = null
 
   constructor(options: PageSocketOptions) {
     this.options = options
   }
 
-  /** Connect (or begin the reconnect loop). */
-  connect(): void {
+  /**
+   * Connect (or begin the reconnect loop). The returned promise settles
+   * ONLY on the exact `target.registered` frame: an initial handshake
+   * close, a terminal error frame, the registration timeout, or close()
+   * (dispose) all reject it. Reconnects after a successful registration
+   * stay fully transparent — the promise is long settled by then.
+   */
+  connect(): Promise<void> {
     this.closeRequested = false
+    this.registered = false
+    // A previous, still-pending registration (possible only when connect()
+    // is called twice without settling) is rejected so no promise dangles;
+    // a pending backoff timer from an earlier attempt is dropped too, so a
+    // fresh attempt can never double-open.
+    this.settleRegistration(new Error('vite page socket reconnected before target registration'))
+    if (this.reconnectTimer !== null) {
+      clearTimeout(this.reconnectTimer)
+      this.reconnectTimer = null
+    }
+    const timeoutMs = this.options.registerTimeoutMs ?? 10_000
+    this.registerTimer = setTimeout(() => {
+      this.registerTimer = null
+      this.settleRegistration(new Error(`vite target registration timed out after ${timeoutMs}ms`))
+    }, timeoutMs)
     this.open()
+    return new Promise<void>((resolve, reject) => {
+      this.resolveRegistration = resolve
+      this.rejectRegistration = reject
+    })
   }
 
   /** Subscribe to a host-issued target.revoke. */
@@ -87,13 +124,15 @@ export class PageSocket {
     this.socket.send(JSON.stringify(frame))
   }
 
-  /** Stop reconnecting, drop the heartbeat, and settle every in-flight call. */
+  /** Stop reconnecting, drop the heartbeat, settle the registration
+   *  readiness if it is still pending, and settle every in-flight call. */
   close(): void {
     this.closeRequested = true
     if (this.reconnectTimer !== null) clearTimeout(this.reconnectTimer)
     this.reconnectTimer = null
     this.stopHeartbeat()
     this.settleAll()
+    this.settleRegistration(new Error('vite page socket closed before target registration'))
     this.socket?.close()
     this.socket = null
   }
@@ -127,6 +166,13 @@ export class PageSocket {
     // Every in-flight call settles now; the page NEVER replays a tool call,
     // whether or not the host acknowledged it.
     this.settleAll()
+    // An initial handshake close before the first registration is a
+    // failure of activation, not a recoverable blip: reject the readiness
+    // promise so the Activator leaves "connecting". The reconnect loop
+    // below still runs, but the runtime tears the socket down on rejection.
+    if (!this.registered) {
+      this.settleRegistration(new Error('vite page socket closed before target registration'))
+    }
     if (this.closeRequested) return
     const base = this.options.backoffBaseMs ?? 250
     const max = this.options.backoffMaxMs ?? 5_000
@@ -142,6 +188,32 @@ export class PageSocket {
     for (const call of [...this.inFlight.values()]) {
       this.inFlight.delete(call.requestId)
       call.controller.abort()
+    }
+  }
+
+  /** Resolve or reject the first-registration readiness exactly once, and
+   *  always release its timer and callbacks (no dangling promise/timer). */
+  private settleRegistration(error?: Error): void {
+    if (this.registerTimer !== null) {
+      clearTimeout(this.registerTimer)
+      this.registerTimer = null
+    }
+    if (this.resolveRegistration === null || this.rejectRegistration === null) {
+      // Already settled (or never armed): nothing to do.
+      this.resolveRegistration = null
+      this.rejectRegistration = null
+      return
+    }
+    if (error === undefined) {
+      const resolve = this.resolveRegistration
+      this.resolveRegistration = null
+      this.rejectRegistration = null
+      resolve()
+    } else {
+      const reject = this.rejectRegistration
+      this.resolveRegistration = null
+      this.rejectRegistration = null
+      reject(error)
     }
   }
 
@@ -172,8 +244,13 @@ export class PageSocket {
       return
     }
     switch (frame.type) {
-      case 'target.registered':
+      case 'target.registered': {
+        // The exact first-registration acknowledgement: the readiness
+        // promise resolves here and only here. Later frames are no-ops.
+        this.registered = true
+        this.settleRegistration()
         return
+      }
       case 'ping':
         this.sendFrame({ v: VITE_PAGE_PROTOCOL_VERSION, type: 'pong' })
         return
@@ -199,6 +276,7 @@ export class PageSocket {
         // would only burn backoff cycles without ever reaching a connected
         // state. Recovery is a page reload with corrected configuration.
         if (frame.code === 'protocol_mismatch' || frame.code === 'permission_denied') {
+          this.settleRegistration(new Error(`${frame.code}: ${frame.message}`))
           this.closeRequested = true
           this.stopHeartbeat()
           this.settleAll()

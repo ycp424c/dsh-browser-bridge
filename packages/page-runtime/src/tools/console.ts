@@ -49,7 +49,9 @@ export class ConsoleCapture {
   }
 
   start(): void {
-    if (this.started) return
+    // A late start (for example a registration continuation racing page
+    // teardown) must never wrap methods or add listeners after dispose.
+    if (this.started || this.disposed) return
     this.started = true
     const consoleObject = console
     for (const level of ['log', 'info', 'warn', 'error', 'debug'] as const) {

@@ -24,11 +24,17 @@ async function startHttpsFixture(
     visible?: boolean
     panelEnabled?: boolean
     redirectHealth?: boolean
+    htmlHealth?: boolean
+    registeredDelayMs?: number
     csp?: Record<string, string>
     query?: string
   } = {},
 ): Promise<BuildFixture> {
-  const harness = new ViteBrokerHarness({ redirectHealth: options.redirectHealth ?? false })
+  const harness = new ViteBrokerHarness({
+    redirectHealth: options.redirectHealth ?? false,
+    htmlHealth: options.htmlHealth ?? false,
+    registeredDelayMs: options.registeredDelayMs ?? 0,
+  })
   await harness.start()
   const outDir = mkdtempSync(join(tmpdir(), 'dsh-bridge-secure-'))
   const certDir = mkdtempSync(join(tmpdir(), 'dsh-bridge-cert-'))
@@ -236,6 +242,58 @@ test.describe('vite provider production and security', () => {
       await page.waitForTimeout(2_000)
       expect(fixture.harness.healthRequestCount()).toBeGreaterThanOrEqual(1)
       expect(fixture.harness.targets()).toHaveLength(0)
+      await context.close()
+    } finally {
+      fixture.cleanup()
+    }
+  })
+
+  test('a 200 HTML health fallback never shows the launcher and never registers', async ({ browser }) => {
+    // The real local DSH currently answers /health with its SPA fallback
+    // (200 + text/html): the probe must reject it, so panel.visible=true
+    // shows no fake launcher and nothing ever registers.
+    const fixture = await startHttpsFixture({ visible: true, htmlHealth: true })
+    try {
+      const context = await browser.newContext({ ignoreHTTPSErrors: true })
+      const page = await context.newPage()
+      await page.goto(fixture.url)
+      await page.waitForTimeout(2_000)
+      expect(fixture.harness.healthRequestCount()).toBeGreaterThanOrEqual(1)
+      expect(fixture.harness.targets()).toHaveLength(0)
+      // The failed probe must not create any panel UI at all.
+      const host = await page.evaluate(() => document.getElementById('dsh-browser-bridge-panel-host'))
+      expect(host).toBeNull()
+      await context.close()
+    } finally {
+      fixture.cleanup()
+    }
+  })
+
+  test('the drawer stays closed and the target unregistered until target.registered arrives', async ({ browser }) => {
+    // Registration readiness: the host answers the WebSocket and records
+    // target.register, but delays the target.registered ack by a wide
+    // window so the "no connected UI before the ack" assertion has margin
+    // even on slow CI.
+    const fixture = await startHttpsFixture({ query: '?dsh=1', registeredDelayMs: 3_000 })
+    try {
+      const context = await browser.newContext({ ignoreHTTPSErrors: true })
+      const page = await context.newPage()
+      await page.goto(fixture.url)
+      // The page connected and sent target.register; the ack is still on
+      // the wire, so the host knows no registered target yet.
+      await fixture.harness.waitForFrame('unregistered', frame => frame.type === 'target.register')
+      expect(fixture.harness.targets()).toHaveLength(0)
+      // No connected UI before the registration ack: no host element at all
+      // (the drawer opens only after activation reaches connected).
+      const before = await page.evaluate(() => document.getElementById('dsh-browser-bridge-panel-host'))
+      expect(before).toBeNull()
+      // After the ack the bridge registers and the drawer opens: the drawer
+      // is the visible "connected" signal (the iframe banner inside it
+      // reports the harness's embedding state, not the bridge state).
+      const target = await fixture.harness.waitForAnyTarget()
+      await expect(page.locator('#dsh-browser-bridge-panel-host')).toBeVisible({ timeout: 15_000 })
+      const result = await fixture.harness.call(target.targetId, 'observe', {}) as { nodes: unknown[] }
+      expect(result.nodes.length).toBeGreaterThan(0)
       await context.close()
     } finally {
       fixture.cleanup()

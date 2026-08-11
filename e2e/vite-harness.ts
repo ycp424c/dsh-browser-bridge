@@ -43,6 +43,16 @@ interface PendingCall {
 export interface ViteBrokerHarnessOptions {
   /** When true, /health answers 302 to a remote origin (redirect probe). */
   redirectHealth?: boolean
+  /**
+   * When true, /health answers 200 + text/html like a DSH SPA fallback
+   * (every unknown path serves the app shell) instead of the host JSON.
+   */
+  htmlHealth?: boolean
+  /**
+   * When set, target.registered is sent this many ms after target.register
+   * (registration readiness window for the page).
+   */
+  registeredDelayMs?: number
   now?: () => number
 }
 
@@ -51,15 +61,21 @@ export class ViteBrokerHarness {
   private http: Server | undefined
   private wss: WebSocketServer | undefined
   private readonly redirectHealth: boolean
+  private readonly htmlHealth: boolean
+  private readonly registeredDelayMs: number
   private readonly now: () => number
   private readonly connections = new Map<WebSocket, RecordedTarget | null>()
   private readonly frames: RecordedFrame[] = []
   private readonly pending = new Map<string, PendingCall>()
   private readonly healthHits: number[] = []
+  /** Delayed-registration timers, cleared on close(). */
+  private readonly registerTimers = new Set<ReturnType<typeof setTimeout>>()
   port = 0
 
   constructor(options: ViteBrokerHarnessOptions = {}) {
     this.redirectHealth = options.redirectHealth ?? false
+    this.htmlHealth = options.htmlHealth ?? false
+    this.registeredDelayMs = options.registeredDelayMs ?? 0
     this.now = options.now ?? Date.now
   }
 
@@ -79,6 +95,12 @@ export class ViteBrokerHarness {
         if (this.redirectHealth) {
           res.writeHead(302, { location: 'https://evil.example/health' })
           res.end()
+          return
+        }
+        if (this.htmlHealth) {
+          // Exactly what a DSH SPA fallback answers for any unknown path.
+          res.writeHead(200, { 'content-type': 'text/html' })
+          res.end('<!doctype html><html><body><div id="app"></div><script src="/assets/index.js"></script></body></html>')
           return
         }
         const origin = req.headers.origin
@@ -128,6 +150,9 @@ export class ViteBrokerHarness {
     this.wss = new WebSocketServer({ noServer: true })
     this.wss.on('connection', (socket: WebSocket) => {
       this.connections.set(socket, null)
+      // A send on a socket that already closed must never surface as an
+      // uncaught error event.
+      socket.on('error', () => {})
       socket.on('message', data => {
         let frame: Record<string, unknown>
         try {
@@ -168,12 +193,27 @@ export class ViteBrokerHarness {
         capabilities: Array.isArray(target.capabilities) ? target.capabilities.map(String) : [],
         ...(typeof target.projectId === 'string' ? { projectId: target.projectId } : {}),
       }
-      this.connections.set(socket, descriptor)
-      socket.send(JSON.stringify({
-        v: VITE_PAGE_PROTOCOL_VERSION,
-        type: 'target.registered',
-        targetId: descriptor.targetId,
-      }))
+      const register = (): void => {
+        // The target becomes live exactly when its ack goes out.
+        this.connections.set(socket, descriptor)
+        socket.send(JSON.stringify({
+          v: VITE_PAGE_PROTOCOL_VERSION,
+          type: 'target.registered',
+          targetId: descriptor.targetId,
+        }))
+      }
+      if (this.registeredDelayMs > 0) {
+        // Open the registration readiness window: the page must stay
+        // unregistered (and never report connected) until this ack. The
+        // timer is tracked so close() can clear it on early teardown.
+        const timer = setTimeout(() => {
+          this.registerTimers.delete(timer)
+          register()
+        }, this.registeredDelayMs)
+        this.registerTimers.add(timer)
+        return
+      }
+      register()
       return
     }
     if (frame.type === 'tool.result') {
@@ -283,6 +323,8 @@ export class ViteBrokerHarness {
   close(): void {
     for (const pending of this.pending.values()) clearTimeout(pending.timer)
     this.pending.clear()
+    for (const timer of this.registerTimers) clearTimeout(timer)
+    this.registerTimers.clear()
     this.wss?.close()
     this.http?.close()
     this.connections.clear()

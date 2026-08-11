@@ -94,6 +94,29 @@ describe('console capture', () => {
     expect(capture.rows()).toHaveLength(0)
   })
 
+  it('start() after dispose() is a no-op and never wraps the console', () => {
+    const originals = {
+      log: console.log,
+      info: console.info,
+      warn: console.warn,
+      error: console.error,
+      debug: console.debug,
+    }
+    const capture = new ConsoleCapture({ generation: () => 1 })
+    // A late start (for example a registration continuation racing page
+    // teardown) must not wrap methods or add listeners after the capture
+    // was disposed: the originals stay in place.
+    capture.dispose()
+    capture.start()
+    expect(console.log).toBe(originals.log)
+    expect(console.info).toBe(originals.info)
+    expect(console.warn).toBe(originals.warn)
+    expect(console.error).toBe(originals.error)
+    expect(console.debug).toBe(originals.debug)
+    console.log('after late start')
+    expect(capture.rows()).toHaveLength(0)
+  })
+
   it('never persists captured evidence anywhere', () => {
     const before = window.localStorage.length
     const { console: capture } = makeCapture()
