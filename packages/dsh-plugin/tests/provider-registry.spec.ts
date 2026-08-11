@@ -199,7 +199,7 @@ describe('target coordinator', () => {
     coordinator.consumeBatch([record.handle], { sessionId: 's', turn: 1 })
     const controller = new AbortController()
     const pending = coordinator.request(record.grantId, 'observe', {}, controller.signal)
-    coordinator.revokeTurn('connection-a', 's', 1)
+    coordinator.revokeConnectionTurn('connection-a', 's', 1)
     expect(vite.revokes).toEqual([
       expect.objectContaining({ grantId: record.grantId, target: expect.objectContaining({ connectionId: 'connection-a' }) }),
     ])

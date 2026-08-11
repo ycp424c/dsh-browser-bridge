@@ -4,11 +4,32 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { AttachmentId, type AttachmentStore, type ImageAttachmentRef, type SaveImageAttachment } from '@deepseek-ai/dsh-attachment'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
-import { GrantId, type BrowserOperation, type JsonValue, type TabDescriptor } from '@dsh-external/dsh-browser-bridge-protocol'
+import { GrantId, type BrowserOperation, type BrowserTargetDescriptor, type JsonValue, type TabDescriptor } from '@dsh-external/dsh-browser-bridge-protocol'
 import { createBrowserTools, type BrowserToolsDeps, type PageAlias } from '../src/tools/definitions.ts'
 
 const TAB: TabDescriptor = { tabId: 7, windowId: 2, title: 'Fixture', url: 'http://127.0.0.1:4173/' }
 const TAB2: TabDescriptor = { tabId: 8, windowId: 2, title: 'Other', url: 'http://127.0.0.1:4174/' }
+
+const CHROME_TARGET: BrowserTargetDescriptor = {
+  targetId: 'c'.repeat(43) as never,
+  provider: 'chrome-extension',
+  title: 'Fixture',
+  url: 'http://127.0.0.1:4173/',
+  origin: 'http://127.0.0.1:4173',
+  generation: 0,
+  capabilities: ['observe', 'inspect', 'screenshot', 'act', 'navigate', 'wait', 'console', 'network'],
+}
+
+const VITE_TARGET: BrowserTargetDescriptor = {
+  targetId: 'v'.repeat(43) as never,
+  provider: 'vite',
+  title: 'Vite Page',
+  url: 'http://127.0.0.1:5173/',
+  origin: 'http://127.0.0.1:5173',
+  projectId: 'app',
+  generation: 0,
+  capabilities: ['observe', 'inspect', 'act', 'navigate', 'wait', 'console'],
+}
 
 const SHOT_REF: ImageAttachmentRef = {
   attachmentId: AttachmentId('shot-1'),
@@ -97,8 +118,8 @@ describe('browser tool definitions', () => {
 
   it('omits page only when exactly one page is attached', async () => {
     const pages: PageAlias[] = [
-      { alias: 'page_1', grantId: GrantId('g1'), tab: TAB },
-      { alias: 'page_2', grantId: GrantId('g2'), tab: TAB2 },
+      { alias: 'page_1', grantId: GrantId('g1'), target: CHROME_TARGET },
+      { alias: 'page_2', grantId: GrantId('g2'), target: CHROME_TARGET },
     ]
     const called: string[] = []
     const tools = createBrowserTools(makeDeps(pages, async (_grantId, operation) => {
@@ -111,7 +132,7 @@ describe('browser tool definitions', () => {
   })
 
   it('routes execute through the resolved page and request carrier', async () => {
-    const pages: PageAlias[] = [{ alias: 'page_1', grantId: GrantId('g1'), tab: TAB }]
+    const pages: PageAlias[] = [{ alias: 'page_1', grantId: GrantId('g1'), target: CHROME_TARGET }]
     const calls: Array<{ operation: BrowserOperation; args: JsonValue }> = []
     const tools = createBrowserTools(makeDeps(pages, async (grantId, operation, args) => {
       expect(grantId).toBe('g1')
@@ -125,7 +146,7 @@ describe('browser tool definitions', () => {
   })
 
   it('preserves structured bridge errors that crossed the WebSocket boundary', async () => {
-    const pages: PageAlias[] = [{ alias: 'page_1', grantId: GrantId('g1'), tab: TAB }]
+    const pages: PageAlias[] = [{ alias: 'page_1', grantId: GrantId('g1'), target: CHROME_TARGET }]
     const tools = createBrowserTools(makeDeps(pages, async () => {
       throw {
         code: 'stale_element',
@@ -145,7 +166,7 @@ describe('browser tool definitions', () => {
   })
 
   it('rethrows plain Error instances untouched when they carry no stable code', async () => {
-    const pages: PageAlias[] = [{ alias: 'page_1', grantId: GrantId('g1'), tab: TAB }]
+    const pages: PageAlias[] = [{ alias: 'page_1', grantId: GrantId('g1'), target: CHROME_TARGET }]
     const tools = createBrowserTools(makeDeps(pages, async () => {
       throw new Error('plain failure')
     }))
@@ -155,7 +176,7 @@ describe('browser tool definitions', () => {
   })
 
   it('falls back to a readable message for primitive throws', async () => {
-    const pages: PageAlias[] = [{ alias: 'page_1', grantId: GrantId('g1'), tab: TAB }]
+    const pages: PageAlias[] = [{ alias: 'page_1', grantId: GrantId('g1'), target: CHROME_TARGET }]
     const tools = createBrowserTools(makeDeps(pages, async () => {
       throw 'boom'
     }))
@@ -165,7 +186,7 @@ describe('browser tool definitions', () => {
   })
 
   it('normalizes local Error instances tagged with a stable code', async () => {
-    const pages: PageAlias[] = [{ alias: 'page_1', grantId: GrantId('g1'), tab: TAB }]
+    const pages: PageAlias[] = [{ alias: 'page_1', grantId: GrantId('g1'), target: CHROME_TARGET }]
     const tools = createBrowserTools(makeDeps(pages, async () => {
       const failure = new Error('grant is gone')
       Object.assign(failure, { code: 'grant_expired' })
@@ -177,7 +198,7 @@ describe('browser tool definitions', () => {
   })
 
   it('does not misread partial objects as bridge errors', async () => {
-    const pages: PageAlias[] = [{ alias: 'page_1', grantId: GrantId('g1'), tab: TAB }]
+    const pages: PageAlias[] = [{ alias: 'page_1', grantId: GrantId('g1'), target: CHROME_TARGET }]
     const tools = createBrowserTools(makeDeps(pages, async () => {
       // A look-alike that lacks the retryable flag is not a stable bridge error.
       throw { code: 'stale_element', message: 'incomplete' }
@@ -188,7 +209,7 @@ describe('browser tool definitions', () => {
   })
 
   it('strips the page argument before forwarding to the extension', async () => {
-    const pages: PageAlias[] = [{ alias: 'page_1', grantId: GrantId('g1'), tab: TAB }]
+    const pages: PageAlias[] = [{ alias: 'page_1', grantId: GrantId('g1'), target: CHROME_TARGET }]
     let forwarded: JsonValue = {}
     const tools = createBrowserTools(makeDeps(pages, async (_grantId, _operation, args) => {
       forwarded = args
@@ -219,7 +240,7 @@ describe('browser tool definitions', () => {
   })
 
   it('screenshot execute decodes base64 and commits via attachments.saveImage', async () => {
-    const pages: PageAlias[] = [{ alias: 'page_1', grantId: GrantId('g1'), tab: TAB }]
+    const pages: PageAlias[] = [{ alias: 'page_1', grantId: GrantId('g1'), target: CHROME_TARGET }]
     const saved: SaveImageAttachment[] = []
     const tools = createBrowserTools(makeDeps(pages, async () => ({
       mimeType: 'image/png',
@@ -247,7 +268,7 @@ describe('browser tool definitions', () => {
   })
 
   it('screenshot execute rejects unsupported media types before saving', async () => {
-    const pages: PageAlias[] = [{ alias: 'page_1', grantId: GrantId('g1'), tab: TAB }]
+    const pages: PageAlias[] = [{ alias: 'page_1', grantId: GrantId('g1'), target: CHROME_TARGET }]
     const saved: SaveImageAttachment[] = []
     const tools = createBrowserTools(makeDeps(pages, async () => ({
       mimeType: 'image/bmp',
@@ -264,12 +285,63 @@ describe('browser tool definitions', () => {
     expect(saved).toHaveLength(0)
   })
 
+  it('rejects screenshot and network against a Vite alias before dispatch', async () => {
+    const pages: PageAlias[] = [{ alias: 'page_1', grantId: GrantId('g1'), target: VITE_TARGET }]
+    const called: string[] = []
+    const tools = createBrowserTools(makeDeps(pages, async (_grantId, operation) => {
+      called.push(operation)
+      return {}
+    }))
+    const screenshot = tools.find(tool => tool.name === 'browser_screenshot')!
+    const network = tools.find(tool => tool.name === 'browser_network')!
+    await expect(screenshot.execute({ page: 'page_1' }, { signal } as never))
+      .rejects.toMatchObject({ name: 'HarnessError', code: 'unsupported_operation' })
+    await expect(network.execute({ page: 'page_1' }, { signal } as never))
+      .rejects.toMatchObject({ name: 'HarnessError', code: 'unsupported_operation' })
+    expect(called).toEqual([])
+  })
+
+  it('accepts every reliable Vite operation against a Vite alias', async () => {
+    const pages: PageAlias[] = [{ alias: 'page_1', grantId: GrantId('g1'), target: VITE_TARGET }]
+    const called: string[] = []
+    const tools = createBrowserTools(makeDeps(pages, async (_grantId, operation) => {
+      called.push(operation)
+      return { ok: true }
+    }))
+    for (const operation of ['observe', 'inspect', 'act', 'navigate', 'wait', 'console']) {
+      const tool = tools.find(candidate => candidate.name === `browser_${operation}`)!
+      await tool.execute({ page: 'page_1' }, { signal } as never)
+    }
+    expect(called).toEqual(['observe', 'inspect', 'act', 'navigate', 'wait', 'console'])
+  })
+
+  it('a mixed turn keeps screenshot and guards it per alias', async () => {
+    const pages: PageAlias[] = [
+      { alias: 'page_1', grantId: GrantId('g1'), target: CHROME_TARGET },
+      { alias: 'page_2', grantId: GrantId('g2'), target: VITE_TARGET },
+    ]
+    const called: string[] = []
+    const tools = createBrowserTools(makeDeps(pages, async (_grantId, operation): Promise<JsonValue> => {
+      called.push(operation)
+      if (operation === 'screenshot') {
+        return { mimeType: 'image/png', data: 'aGVsbG8=', url: 'http://x/', width: 1, height: 1 }
+      }
+      return {}
+    }))
+    const screenshot = tools.find(tool => tool.name === 'browser_screenshot')!
+    await screenshot.execute({ page: 'page_1' }, { signal } as never)
+    expect(called).toEqual(['screenshot'])
+    await expect(screenshot.execute({ page: 'page_2' }, { signal } as never))
+      .rejects.toMatchObject({ code: 'unsupported_operation' })
+    expect(called).toEqual(['screenshot'])
+  })
+
   it('tools are registerable on an agent-scoped tool registry', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
     const agent = { ctx } as unknown as Agent
-    const pages: PageAlias[] = [{ alias: 'page_1', grantId: GrantId('g1'), tab: TAB }]
+    const pages: PageAlias[] = [{ alias: 'page_1', grantId: GrantId('g1'), target: CHROME_TARGET }]
     const disposers = createBrowserTools(makeDeps(pages)).map(definition => agent.ctx.tools.register(definition))
     expect(agent.ctx.tools.get('browser_observe')).toBeDefined()
     for (const dispose of disposers) dispose()

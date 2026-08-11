@@ -155,6 +155,11 @@ export class GrantStore {
       record.target.connectionId === connectionId && record.sessionId === sessionId && record.turn === turn)
   }
 
+  /** Revoke every grant consumed by one turn across ALL connections. */
+  revokeSessionTurn(sessionId: string, turn: number): GrantRecord[] {
+    return this.drop(record => record.sessionId === sessionId && record.turn === turn)
+  }
+
   /** Revoke every grant of one connection/session (disconnect, expiry, close). */
   revokeSession(connectionId: string, sessionId: string): GrantRecord[] {
     return this.drop(record =>

@@ -126,8 +126,13 @@ export class TargetCoordinator {
     }
   }
 
-  /** Revoke every grant of one turn and notify the owning providers. */
-  revokeTurn(connectionId: string, sessionId: string, turn: number): GrantRecord[] {
+  /** Revoke every grant consumed by one turn across ALL providers. */
+  revokeTurn(sessionId: string, turn: number): GrantRecord[] {
+    return this.revokeRecords(this.grants.revokeSessionTurn(sessionId, turn))
+  }
+
+  /** Revoke every grant of one connection's turn and notify providers. */
+  revokeConnectionTurn(connectionId: string, sessionId: string, turn: number): GrantRecord[] {
     return this.revokeRecords(this.grants.revokeTurn(connectionId, sessionId, turn))
   }
 

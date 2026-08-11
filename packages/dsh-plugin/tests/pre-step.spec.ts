@@ -8,13 +8,15 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import {
-  ConnectionId, GrantId, encodeMarker, type TabDescriptor,
+  ConnectionId, GrantId, VITE_PAGE_PROTOCOL_VERSION, encodeMarker,
+  type TabDescriptor, type TargetId,
 } from '@dsh-external/dsh-browser-bridge-protocol'
 import { GrantStore } from '../src/bridge/grant-store.ts'
 import { BridgeServer, type BridgeSocket } from '../src/bridge/server.ts'
 import { PairingStore } from '../src/bridge/pairing-store.ts'
 import { TargetCoordinator } from '../src/targets/coordinator.ts'
 import { ProviderRegistry } from '../src/targets/provider-registry.ts'
+import { ViteTargetBroker, type ViteSocket } from '../src/vite/broker.ts'
 import { createPreStepHandler, type PreStepHandlerDeps } from '../src/pre-step.ts'
 import { registerTurnTools } from '../src/tools/register.ts'
 import { FakeAttachments } from './fake-attachments.ts'
@@ -38,6 +40,7 @@ class FakeSocket implements BridgeSocket {
     for (const handler of this.closeHandlers) handler()
   }
   receive(text: string): void { for (const handler of this.messageHandlers) handler(text) }
+  frames(): Array<Record<string, unknown>> { return this.sent.map(text => JSON.parse(text) as Record<string, unknown>) }
 }
 
 async function stubAgent(ctx: Context, id: string): Promise<Agent> {
@@ -110,6 +113,10 @@ interface Fixture {
   socket: FakeSocket
   connectionId: string
   offer(connectionId: string, sessionId: string, tab: TabDescriptor, grantId?: string): string
+  /** Offer one Vite grant for a live page target (host-allocated id). */
+  offerVite(targetId: string, sessionId: string): string
+  viteSocket: FakeSocket
+  handler: ReturnType<typeof createPreStepHandler>
 }
 
 async function makeFixture(): Promise<Fixture> {
@@ -127,7 +134,12 @@ async function makeFixture(): Promise<Fixture> {
   const registry = new ProviderRegistry()
   const coordinator = new TargetCoordinator({ providers: registry, grants })
   const server = new BridgeServer({ pairing, coordinator })
+  const broker = new ViteTargetBroker({ coordinator })
   registry.register(server)
+  registry.register(broker)
+  const viteSocket = new FakeSocket()
+  broker.attach(viteSocket, 'http://127.0.0.1:5173')
+  viteSocket.receive(JSON.stringify({ v: VITE_PAGE_PROTOCOL_VERSION, type: 'hello' }))
   const socket = new FakeSocket()
   server.attach(socket, EXT_A)
   const nonce = pairing.issue(EXT_A)
@@ -136,10 +148,9 @@ async function makeFixture(): Promise<Fixture> {
   const connectionId = ok.connectionId
 
   const deps: PreStepHandlerDeps = {
-    server,
-    grants,
+    coordinator,
     registerTurnTools: (agent, turn) => registerTurnTools(agent, turn, {
-      server,
+      coordinator,
       attachments: ctx.attachments,
     }),
   }
@@ -167,7 +178,26 @@ async function makeFixture(): Promise<Fixture> {
     if (accepted === undefined) throw new Error('grant.put was not accepted')
     return accepted.handle
   }
-  return { ctx, agent, server, grants, pairing, socket, connectionId, offer }
+  const offerVite = (targetId: string, sessionId: string): string => {
+    viteSocket.receive(JSON.stringify({
+      v: VITE_PAGE_PROTOCOL_VERSION,
+      type: 'target.register',
+      target: {
+        targetId,
+        provider: 'vite',
+        title: 'Vite Page',
+        url: 'http://127.0.0.1:5173/',
+        origin: 'http://127.0.0.1:5173',
+        projectId: 'app',
+        generation: 0,
+        capabilities: ['observe', 'inspect', 'act', 'navigate', 'wait', 'console'],
+      },
+    }))
+    const binding = broker.bindingFor(targetId as TargetId)
+    if (binding === undefined) throw new Error('vite target did not register')
+    return coordinator.offer({ sessionId, expiresAt: Date.now() + 60_000, target: binding }).handle
+  }
+  return { ctx, agent, server, grants, pairing, socket, connectionId, offer, offerVite, viteSocket, handler }
 }
 
 describe('pre-step marker consumption', () => {
@@ -430,6 +460,93 @@ describe('pre-step marker consumption', () => {
     expect(text).toContain('http://127.0.0.1:4173/path')
     expect(text).not.toContain('secret=1')
     expect(text).not.toContain('#frag')
+  })
+
+  it('renders provider and capabilities per attached page in the summary', async () => {
+    const fixture = await makeFixture()
+    const { ctx, agent, connectionId, offer, offerVite } = fixture
+    const h1 = offer(connectionId, 'session-a', TAB)
+    const h2 = offerVite('t'.repeat(43), 'session-a')
+    const decision = await proposeStep(ctx, agent, userMessage(`a ${encodeMarker(h1)} b ${encodeMarker(h2)}`), 1)
+    const text = textOf(decision)
+    expect(text).toContain('provider="chrome-extension"')
+    expect(text).toContain('provider="vite"')
+    expect(text).toContain('capabilities="observe,inspect,act,navigate,wait,console"')
+    expect(text).toContain('http://127.0.0.1:5173/')
+  })
+
+  it('a Vite-only turn registers no screenshot or network tools', async () => {
+    const fixture = await makeFixture()
+    const { ctx, agent, offerVite } = fixture
+    const handle = offerVite('t'.repeat(43), 'session-a')
+    const decision = await proposeStep(ctx, agent, userMessage(`verify ${encodeMarker(handle)}`), 1)
+    expect(decision.kind).toBe('enter')
+    expect(agent.ctx.tools.get('browser_observe', agent)).toBeDefined()
+    expect(agent.ctx.tools.get('browser_act', agent)).toBeDefined()
+    expect(agent.ctx.tools.get('browser_screenshot', agent)).toBeUndefined()
+    expect(agent.ctx.tools.get('browser_network', agent)).toBeUndefined()
+  })
+
+  it('a mixed turn registers screenshot (chrome) and rejects it against the vite alias', async () => {
+    const fixture = await makeFixture()
+    const { ctx, agent, connectionId, offer, offerVite } = fixture
+    const h1 = offer(connectionId, 'session-a', TAB)
+    const h2 = offerVite('t'.repeat(43), 'session-a')
+    const decision = await proposeStep(ctx, agent, userMessage(`a ${encodeMarker(h1)} b ${encodeMarker(h2)}`), 1)
+    expect(decision.kind).toBe('enter')
+    const screenshot = agent.ctx.tools.get('browser_screenshot', agent)!
+    expect(screenshot).toBeDefined()
+    await expect(screenshot.execute(
+      { page: 'page_2' },
+      { callId: 'c' as never, name: 'browser_screenshot', arguments: { page: 'page_2' }, signal: new AbortController().signal, agent } as never,
+    )).rejects.toMatchObject({ name: 'HarnessError', code: 'unsupported_operation' })
+  })
+
+  it('turn completion revokes grants on both providers', async () => {
+    const fixture = await makeFixture()
+    const { ctx, agent, connectionId, offer, offerVite, socket, viteSocket } = fixture
+    const chromeGrant = GrantId('g-both-a')
+    const h1 = offer(connectionId, 'session-a', TAB, chromeGrant)
+    const h2 = offerVite('t'.repeat(43), 'session-a')
+    await proposeStep(ctx, agent, userMessage(`a ${encodeMarker(h1)} b ${encodeMarker(h2)}`), 1)
+    await fireTurnStopping(ctx, agent, 1)
+    expect(agent.ctx.tools.get('browser_observe', agent)).toBeUndefined()
+    const chromeRevokes = socket.frames().filter(frame => frame.type === 'grant.revoke')
+    expect(chromeRevokes).toContainEqual(expect.objectContaining({ grantId: chromeGrant }))
+    const viteRevokes = viteSocket.frames().filter(frame => frame.type === 'target.revoke')
+    expect(viteRevokes).toHaveLength(1)
+  })
+
+  it('cancelling the turn signal revokes both providers', async () => {
+    const fixture = await makeFixture()
+    const { ctx, agent, connectionId, offer, offerVite, socket, viteSocket } = fixture
+    const chromeGrant = GrantId('g-both-cancel')
+    const h1 = offer(connectionId, 'session-a', TAB, chromeGrant)
+    const h2 = offerVite('t'.repeat(43), 'session-a')
+    const controller = new AbortController()
+    await proposeStep(ctx, agent, userMessage(`a ${encodeMarker(h1)} b ${encodeMarker(h2)}`), 1, controller.signal)
+    controller.abort()
+    await vi.waitFor(() => {
+      expect(agent.ctx.tools.get('browser_observe', agent)).toBeUndefined()
+      expect(socket.frames().filter(frame => frame.type === 'grant.revoke'))
+        .toContainEqual(expect.objectContaining({ grantId: chromeGrant }))
+      expect(viteSocket.frames().filter(frame => frame.type === 'target.revoke')).toHaveLength(1)
+    })
+  })
+
+  it('session disposal revokes grants on both providers', async () => {
+    const fixture = await makeFixture()
+    const { ctx, agent, connectionId, offer, offerVite, socket, viteSocket } = fixture
+    const chromeGrant = GrantId('g-both-dispose')
+    const h1 = offer(connectionId, 'session-a', TAB, chromeGrant)
+    const h2 = offerVite('t'.repeat(43), 'session-a')
+    await proposeStep(ctx, agent, userMessage(`a ${encodeMarker(h1)} b ${encodeMarker(h2)}`), 1)
+    // The host disposes the agent: cleanup runs for the active turn.
+    fixture.handler.dispose(agent)
+    expect(agent.ctx.tools.get('browser_observe', agent)).toBeUndefined()
+    expect(socket.frames().filter(frame => frame.type === 'grant.revoke'))
+      .toContainEqual(expect.objectContaining({ grantId: chromeGrant }))
+    expect(viteSocket.frames().filter(frame => frame.type === 'target.revoke')).toHaveLength(1)
   })
 
   describe('turn signal abort cleanup', () => {

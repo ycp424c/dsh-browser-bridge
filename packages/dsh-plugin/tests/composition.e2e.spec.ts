@@ -17,7 +17,7 @@ import { createScope } from '@deepseek-ai/dsh-scope'
 import { WebSocket } from 'ws'
 import { FakeAttachments } from './fake-attachments.ts'
 import {
-  GrantId, newGrantId, PROTOCOL_VERSION, encodeMarker,
+  GrantId, newGrantId, PROTOCOL_VERSION, VITE_PAGE_PROTOCOL_VERSION, encodeMarker,
   type BridgeFrame, type GrantAcceptedFrame, type GrantPutFrame,
   type HelloOkFrame, type TabDescriptor, type ToolCallFrame, type ToolResultFrame,
 } from '@dsh-external/dsh-browser-bridge-protocol'
@@ -105,6 +105,83 @@ class ExtensionPeer {
   }
 
   send(frame: BridgeFrame): void {
+    this.socket?.send(JSON.stringify(frame))
+  }
+
+  close(): void {
+    this.socket?.close()
+    this.socket = null
+  }
+}
+
+/** Real Vite page protocol peer over a real WebSocket. */
+class VitePeer {
+  private socket: WebSocket | null = null
+  private readonly inbox: Array<Record<string, unknown>> = []
+  private waiters: Array<{ predicate: (frame: Record<string, unknown>) => boolean; resolve: (frame: Record<string, unknown>) => void }> = []
+
+  async connect(wsUrl: string, origin: string): Promise<void> {
+    const socket = new WebSocket(wsUrl, { origin })
+    this.socket = socket
+    await new Promise<void>((resolve, reject) => {
+      socket.once('open', resolve)
+      socket.once('error', reject)
+    })
+    socket.on('message', data => {
+      const frame = JSON.parse(data.toString()) as Record<string, unknown>
+      const waiter = this.waiters.findIndex(candidate => candidate.predicate(frame))
+      if (waiter !== -1) {
+        const [entry] = this.waiters.splice(waiter, 1)
+        entry!.resolve(frame)
+        return
+      }
+      this.inbox.push(frame)
+    })
+    socket.send(JSON.stringify({ v: VITE_PAGE_PROTOCOL_VERSION, type: 'hello' }))
+  }
+
+  async register(targetId: string, origin: string, url: string): Promise<void> {
+    this.send({
+      v: VITE_PAGE_PROTOCOL_VERSION,
+      type: 'target.register',
+      target: {
+        targetId,
+        provider: 'vite',
+        title: 'Vite Page',
+        url,
+        origin,
+        projectId: 'app',
+        generation: 0,
+        capabilities: ['observe', 'inspect', 'act', 'navigate', 'wait', 'console'],
+      },
+    })
+    await this.nextFrame(frame => frame.type === 'target.registered')
+  }
+
+  async nextToolCall(timeoutMs = 5_000): Promise<{ requestId: string; operation: string }> {
+    const frame = await this.nextFrame(frame => frame.type === 'tool.call', timeoutMs)
+    return frame as unknown as { requestId: string; operation: string }
+  }
+
+  async nextFrame(predicate: (frame: Record<string, unknown>) => boolean, timeoutMs = 5_000): Promise<Record<string, unknown>> {
+    const queued = this.inbox.findIndex(predicate)
+    if (queued !== -1) {
+      const [frame] = this.inbox.splice(queued, 1)
+      return frame!
+    }
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('vite peer: frame timeout')), timeoutMs)
+      this.waiters.push({
+        predicate,
+        resolve: frame => {
+          clearTimeout(timer)
+          resolve(frame)
+        },
+      })
+    })
+  }
+
+  send(frame: Record<string, unknown>): void {
     this.socket?.send(JSON.stringify(frame))
   }
 
@@ -305,6 +382,58 @@ describe('DSH composition', () => {
       expect(agent.ctx.tools.get('browser_observe', agent)).toBeUndefined()
     } finally {
       peer.close()
+    }
+  })
+
+  it('attaches a Vite page over the real WebSocket and routes tools to it', async () => {
+    composition = await makeComposition()
+    const { ctx, agent, baseUrl } = composition
+    const port = new URL(baseUrl).port
+    const vite = new VitePeer()
+    const targetId = 'v'.repeat(43)
+    try {
+      await vite.connect(`ws://127.0.0.1:${port}/dsh-browser-bridge/vite/ws`, 'http://127.0.0.1:5173')
+      await vite.register(targetId, 'http://127.0.0.1:5173', 'http://127.0.0.1:5173/')
+
+      const health = await fetch(`${baseUrl}/dsh-browser-bridge/vite/health`, { headers: { origin: 'https://public.example' } })
+      expect(health.ok).toBe(true)
+      expect(health.headers.get('access-control-allow-origin')).toBe('https://public.example')
+      expect(health.headers.get('access-control-allow-credentials')).toBeNull()
+
+      const response = await fetch(`${baseUrl}/dsh-browser-bridge/vite/grants`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', origin: baseUrl },
+        body: JSON.stringify({ sessionId: String(agent.session.header.id), targetId }),
+      })
+      expect(response.ok).toBe(true)
+      const { handle } = (await response.json()) as { handle: string }
+
+      const decision = await proposeStep(ctx, agent, userMessage(`verify ${encodeMarker(handle)}`), 1)
+      expect(textOf(decision)).toContain('provider="vite"')
+      expect(textOf(decision)).toContain('capabilities="observe,inspect,act,navigate,wait,console"')
+      expect(agent.ctx.tools.get('browser_observe', agent)).toBeDefined()
+      expect(agent.ctx.tools.get('browser_screenshot', agent)).toBeUndefined()
+      expect(agent.ctx.tools.get('browser_network', agent)).toBeUndefined()
+
+      const signal = new AbortController().signal
+      const executing = agent.ctx.tools.get('browser_observe', agent)!.execute({ page: 'page_1' }, executionContext(signal, agent))
+      const call = await vite.nextToolCall()
+      expect(call.operation).toBe('observe')
+      vite.send({ v: VITE_PAGE_PROTOCOL_VERSION, type: 'tool.accepted', requestId: call.requestId })
+      vite.send({
+        v: VITE_PAGE_PROTOCOL_VERSION,
+        type: 'tool.result',
+        requestId: call.requestId,
+        result: { ok: true, value: { page: { url: 'http://127.0.0.1:5173/', title: 'Vite Page' }, nodes: [] } },
+      })
+      await expect(executing).resolves.toMatchObject({ page: { url: 'http://127.0.0.1:5173/' } })
+
+      await fireTurnStopping(ctx, agent, 1)
+      expect(agent.ctx.tools.get('browser_observe', agent)).toBeUndefined()
+      const revoke = await vite.nextFrame(frame => frame.type === 'target.revoke')
+      expect(revoke).toMatchObject({ type: 'target.revoke' })
+    } finally {
+      vite.close()
     }
   })
 

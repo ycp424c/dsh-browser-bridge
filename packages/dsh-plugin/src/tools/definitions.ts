@@ -1,7 +1,10 @@
 /**
  * Model-facing browser tool definitions. Schemas stay stable and explicit;
  * every tool optionally accepts `page` (omitted only when one page is
- * attached) and forwards `exec.signal` to the bridge request.
+ * attached) and forwards `exec.signal` to the bridge request. Tools are
+ * constructed per operation so a turn registers only the union of its
+ * attached targets' capabilities, and every execute path re-checks the
+ * selected alias's capability before forwarding.
  */
 import { Buffer } from 'node:buffer'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
@@ -11,15 +14,16 @@ import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import {
   bridgeErrorSchema,
   type BrowserOperation,
+  type BrowserTargetDescriptor,
   type GrantId,
   type JsonValue,
-  type TabDescriptor,
 } from '@dsh-external/dsh-browser-bridge-protocol'
 
 export interface PageAlias {
   alias: string
   grantId: GrantId
-  tab: TabDescriptor
+  /** The normalized target descriptor the alias resolves to. */
+  target: BrowserTargetDescriptor
 }
 
 export interface BrowserToolsDeps {
@@ -34,6 +38,11 @@ export interface BrowserToolsDeps {
   /** Durable attachment store; screenshot bytes commit through `saveImage`. */
   attachments: AttachmentStore
 }
+
+/** Every model-facing browser tool name, keyed by wire operation. */
+export const BROWSER_TOOL_OPERATIONS: readonly BrowserOperation[] = [
+  'observe', 'inspect', 'screenshot', 'act', 'navigate', 'wait', 'console', 'network',
+]
 
 const PAGE_PROPERTY = {
   type: 'string',
@@ -101,7 +110,16 @@ async function forwardRequest(
 ): Promise<unknown> {
   const raw = (args ?? {}) as Record<string, unknown>
   const page = typeof raw.page === 'string' ? raw.page : undefined
-  const { grantId } = deps.resolvePage(page)
+  const resolved = deps.resolvePage(page)
+  // The selected alias's capability is authoritative: a target that does
+  // not advertise an operation fails here, before any dispatch.
+  if (!(resolved.target.capabilities as readonly string[]).includes(operation)) {
+    throw new HarnessError(
+      `unsupported_operation: ${resolved.target.provider} target does not support ${operation}`,
+      'unsupported_operation',
+    )
+  }
+  const { grantId } = resolved
   const { page: _page, ...rest } = raw
   try {
     return await deps.request(grantId, operation, rest as JsonValue, signal)
@@ -110,14 +128,25 @@ async function forwardRequest(
   }
 }
 
-export function createBrowserTools(deps: BrowserToolsDeps): ToolDefinition[] {
-  const execute =
-    (operation: BrowserOperation) =>
-    (args: unknown, exec: { signal: AbortSignal }): Promise<unknown> =>
-      forwardRequest(deps, operation, args, exec.signal)
+type ToolBuilder = (deps: BrowserToolsDeps) => ToolDefinition
 
-  const tools: Array<Omit<ToolDefinition, 'execute'> & { execute(args: unknown, exec: { signal: AbortSignal }): Promise<unknown> }> = [
-    {
+/** Build one browser tool for one operation (turn unions pick the subset). */
+export function createBrowserTool(operation: BrowserOperation, deps: BrowserToolsDeps): ToolDefinition {
+  return TOOL_BUILDERS[operation](deps)
+}
+
+/** Build every browser tool (full Chrome-capable surface). */
+export function createBrowserTools(deps: BrowserToolsDeps): ToolDefinition[] {
+  return BROWSER_TOOL_OPERATIONS.map(operation => createBrowserTool(operation, deps))
+}
+
+const execute =
+  (deps: BrowserToolsDeps, operation: BrowserOperation) =>
+  (args: unknown, exec: { signal: AbortSignal }): Promise<unknown> =>
+    forwardRequest(deps, operation, args, exec.signal)
+
+const TOOL_BUILDERS: Record<BrowserOperation, ToolBuilder> = {
+    observe: deps => ({
       name: 'browser_observe',
       description: 'Observe the attached page: identity, lifecycle state, semantic DOM, and short-lived element references.',
       parameters: {
@@ -134,9 +163,9 @@ export function createBrowserTools(deps: BrowserToolsDeps): ToolDefinition[] {
         render: JSON_TEXT_RENDER,
       },
       isConcurrencySafe: () => true,
-      execute: execute('observe'),
-    },
-    {
+      execute: execute(deps, 'observe'),
+    }),
+    inspect: deps => ({
       name: 'browser_inspect',
       description: 'Inspect a referenced element or selector: attributes, text, computed style, geometry, and visibility.',
       parameters: {
@@ -155,9 +184,9 @@ export function createBrowserTools(deps: BrowserToolsDeps): ToolDefinition[] {
         render: JSON_TEXT_RENDER,
       },
       isConcurrencySafe: () => true,
-      execute: execute('inspect'),
-    },
-    {
+      execute: execute(deps, 'inspect'),
+    }),
+    screenshot: deps => ({
       name: 'browser_screenshot',
       description: 'Capture the current viewport or a referenced element as a PNG screenshot.',
       parameters: {
@@ -200,8 +229,8 @@ export function createBrowserTools(deps: BrowserToolsDeps): ToolDefinition[] {
         })
         return { url: shot.url, width: shot.width, height: shot.height, attachment }
       },
-    },
-    {
+    }),
+    act: deps => ({
       name: 'browser_act',
       description: 'Interact with the page: click, type, select, hover, focus, press keys, or scroll.',
       parameters: {
@@ -229,9 +258,9 @@ export function createBrowserTools(deps: BrowserToolsDeps): ToolDefinition[] {
         schema: { type: 'object', additionalProperties: true },
         render: JSON_TEXT_RENDER,
       },
-      execute: execute('act'),
-    },
-    {
+      execute: execute(deps, 'act'),
+    }),
+    navigate: deps => ({
       name: 'browser_navigate',
       description: 'Navigate the attached tab: open an absolute HTTP(S) URL, go back or forward, or reload.',
       parameters: {
@@ -249,9 +278,9 @@ export function createBrowserTools(deps: BrowserToolsDeps): ToolDefinition[] {
         schema: { type: 'object', additionalProperties: true },
         render: JSON_TEXT_RENDER,
       },
-      execute: execute('navigate'),
-    },
-    {
+      execute: execute(deps, 'navigate'),
+    }),
+    wait: deps => ({
       name: 'browser_wait',
       description: 'Wait for an element, text, URL, lifecycle condition, or a bounded page stability window.',
       parameters: {
@@ -277,9 +306,9 @@ export function createBrowserTools(deps: BrowserToolsDeps): ToolDefinition[] {
         schema: { type: 'object', additionalProperties: true },
         render: JSON_TEXT_RENDER,
       },
-      execute: execute('wait'),
-    },
-    {
+      execute: execute(deps, 'wait'),
+    }),
+    console: deps => ({
       name: 'browser_console',
       description: 'Console errors and relevant log entries observed since the tab was attached.',
       parameters: {
@@ -292,9 +321,9 @@ export function createBrowserTools(deps: BrowserToolsDeps): ToolDefinition[] {
         render: JSON_TEXT_RENDER,
       },
       isConcurrencySafe: () => true,
-      execute: execute('console'),
-    },
-    {
+      execute: execute(deps, 'console'),
+    }),
+    network: deps => ({
       name: 'browser_network',
       description: 'Failed HTTP responses and loading failures observed since the tab was attached (no headers or bodies).',
       parameters: {
@@ -307,10 +336,8 @@ export function createBrowserTools(deps: BrowserToolsDeps): ToolDefinition[] {
         render: JSON_TEXT_RENDER,
       },
       isConcurrencySafe: () => true,
-      execute: execute('network'),
-    },
-  ]
-  return tools
+      execute: execute(deps, 'network'),
+    }),
 }
 
 export function resolvePageAlias(pages: readonly PageAlias[], page?: string): PageAlias {

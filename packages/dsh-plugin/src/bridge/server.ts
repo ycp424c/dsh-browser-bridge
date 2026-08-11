@@ -258,7 +258,7 @@ export class BridgeServer implements BrowserProvider {
    * immediately — never retried or replayed.
    */
   revokeTurn(connectionId: string, sessionId: string, turn: number): GrantId[] {
-    const records = this.coordinator.revokeTurn(connectionId, sessionId, turn)
+    const records = this.coordinator.revokeConnectionTurn(connectionId, sessionId, turn)
     this.cancelPendingForGrants(records.map(record => record.grantId))
     return records.map(record => record.grantId)
   }
