@@ -223,6 +223,28 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@26.2.0)(jsdom@26.1.0)(vite@8.2.1(@types/node@26.2.0)(jiti@2.7.0))
 
+  packages/vite-plugin:
+    dependencies:
+      '@dsh-external/dsh-browser-bridge-page-runtime':
+        specifier: workspace:^
+        version: link:../page-runtime
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
+    devDependencies:
+      tsdown:
+        specifier: ^0.22.2
+        version: 0.22.14(typescript@6.0.3)
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+      vite:
+        specifier: ^8.2.1
+        version: 8.2.1(@types/node@26.2.0)(jiti@2.7.0)
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@26.2.0)(jsdom@26.1.0)(vite@8.2.1(@types/node@26.2.0)(jiti@2.7.0))
+
 packages:
 
   '@1natsu/wait-element@4.2.0':
