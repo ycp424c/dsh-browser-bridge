@@ -25,5 +25,22 @@ export {
   type PageIdentity,
 } from './identity.ts'
 export { probeLocalDsh, type ProbeOptions } from './probe.ts'
-export { PageSocket, type PageDispatcher, type PageWebSocket } from './transport/socket.ts'
+export { PageSocket, type PageWebSocket } from './transport/socket.ts'
+export { ElementRegistry } from './refs/registry.ts'
+export {
+  PageDispatcher,
+  toBridgeError,
+  OBSERVE_ARGS_SCHEMA,
+  INSPECT_ARGS_SCHEMA,
+  type OperationHandler,
+} from './tools/dispatcher.ts'
+export { observeDocument, type ObserveNode, type ObserveResult } from './tools/observe.ts'
+export { inspectElement, COMPUTED_STYLE_ALLOWLIST, type InspectArgs, type InspectResult } from './tools/inspect.ts'
+export {
+  boundField,
+  isSensitiveAttribute,
+  isSensitiveField,
+  maskSensitiveValue,
+  maskText,
+} from './tools/sanitize.ts'
 export { startPageRuntime, type PageRuntime } from './runtime.ts'

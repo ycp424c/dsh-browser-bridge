@@ -8,16 +8,15 @@
  * call as target_disconnected.
  */
 import {
-  bridgeError,
   decodeViteHostToPageFrame,
   VITE_PAGE_PROTOCOL_VERSION,
-  type BridgeError,
   type JsonValue,
   type ViteBrowserCapability,
   type ViteBrowserTargetDescriptor,
   type ViteHostToPageFrame,
   type VitePageToHostFrame,
 } from '@dsh-external/dsh-browser-bridge-protocol'
+import { toBridgeError } from '../tools/dispatcher.ts'
 
 /** Minimal WebSocket face (the real `WebSocket` satisfies it). */
 export interface PageWebSocket {
@@ -52,25 +51,6 @@ interface InFlightCall {
   controller: AbortController
   /** The dispatcher execution; settled or aborted exactly once. */
   executing: Promise<unknown> | null
-}
-
-/** Normalize any execution failure into a stable BridgeError. */
-function toBridgeError(error: unknown): BridgeError {
-  if (error instanceof Error && 'code' in error && typeof (error as { code: unknown }).code === 'string') {
-    const tagged = error as { code: string; message: string }
-    return bridgeError(tagged.code as BridgeError['code'], tagged.message, false)
-  }
-  if (typeof error === 'object' && error !== null
-    && 'code' in error && typeof (error as { code: unknown }).code === 'string'
-    && 'message' in error && typeof (error as { message: unknown }).message === 'string') {
-    const structured = error as { code: string; message: string; retryable?: boolean }
-    return bridgeError(
-      structured.code as BridgeError['code'],
-      structured.message,
-      structured.retryable === true,
-    )
-  }
-  return bridgeError('internal', error instanceof Error ? error.message : 'page tool execution failed', false)
 }
 
 export class PageSocket {
