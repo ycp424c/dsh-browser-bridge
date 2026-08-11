@@ -54,7 +54,8 @@ export interface ViteBrokerOptions {
   /**
    * Optional explicit origin allowlist. Loopback origins (localhost,
    * *.localhost, 127/8, ::1) are always allowed; every other origin must be
-   * listed here or its registration is rejected.
+   * listed here or its registration is rejected. Entries are normalized to
+   * `scheme://host[:port]`; invalid entries throw at construction.
    */
   allowedOrigins?: string[]
   maxTargets?: number
@@ -104,6 +105,29 @@ function keyOf(targetId: string, origin: string): string {
   return `${targetId}\u0000${origin}`
 }
 
+/**
+ * Normalize one configured allowlist origin to its exact `scheme://host[:port]`
+ * form. Entries must be plain HTTP(S) origins without credentials; paths,
+ * queries, and fragments are dropped (page origins never carry them). Invalid
+ * entries throw so a misconfigured allowlist fails loud instead of silently
+ * never matching.
+ */
+export function normalizeAllowedOrigin(origin: string): string {
+  let parsed: URL
+  try {
+    parsed = new URL(origin)
+  } catch {
+    throw new Error(`vite allowed origin is not a valid URL: ${origin}`)
+  }
+  if (parsed.username !== '' || parsed.password !== '') {
+    throw new Error('vite allowed origin must not contain credentials')
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error('vite allowed origin must be HTTP(S)')
+  }
+  return parsed.origin
+}
+
 /** Adapter over a `ws` socket for the real DSH host transport. */
 export function attachViteWebSocket(broker: ViteTargetBroker, socket: { send(data: string): void; close(): void; on(event: 'message', handler: (data: unknown) => void): void; on(event: 'close', handler: () => void): void }, origin: string): void {
   const adapter: ViteSocket = {
@@ -148,7 +172,7 @@ export class ViteTargetBroker implements BrowserProvider {
   constructor(options: ViteBrokerOptions) {
     this.coordinator = options.coordinator
     this.toolTimeoutMs = options.toolTimeoutMs ?? 60_000
-    this.allowedOrigins = new Set(options.allowedOrigins ?? [])
+    this.allowedOrigins = new Set((options.allowedOrigins ?? []).map(normalizeAllowedOrigin))
     this.maxTargets = options.maxTargets ?? MAX_VITE_TARGETS
     this.maxTargetsPerOrigin = options.maxTargetsPerOrigin ?? MAX_VITE_TARGETS_PER_ORIGIN
     this.maxFrameBytes = options.maxFrameBytes ?? MAX_VITE_FRAME_BYTES

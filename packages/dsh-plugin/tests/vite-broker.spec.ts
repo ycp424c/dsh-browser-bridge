@@ -576,6 +576,47 @@ describe('vite target broker review fixes', () => {
     expect(broker.liveTargetCount()).toBe(1)
   })
 
+  it('normalizes allowlist entries to exact origins (trailing slash and case)', () => {
+    const grants = new GrantStore()
+    const registry = new ProviderRegistry()
+    const coordinator = new TargetCoordinator({ providers: registry, grants })
+    const broker = new ViteTargetBroker({
+      coordinator,
+      allowedOrigins: ['https://Other.Example/', 'http://127.0.0.2:8080/index.html#frag'],
+    })
+    registry.register(broker)
+    createdBrokers.push(broker)
+    const socket = new FakeSocket()
+    broker.attach(socket, 'https://other.example')
+    socket.receive(JSON.stringify({ v: VITE_PAGE_PROTOCOL_VERSION, type: 'hello' }))
+    socket.receive(JSON.stringify({
+      v: VITE_PAGE_PROTOCOL_VERSION,
+      type: 'target.register',
+      target: {
+        targetId: 't'.repeat(43),
+        provider: 'vite',
+        title: 'Remote Page',
+        url: 'https://other.example/',
+        origin: 'https://other.example',
+        projectId: 'app',
+        generation: 0,
+        capabilities: ['observe', 'inspect', 'act', 'navigate', 'wait', 'console'],
+      },
+    }))
+    expect(socket.closed).toBe(false)
+    expect(broker.liveTargetCount()).toBe(1)
+  })
+
+  it('rejects malformed allowlist entries at construction (fail loud)', () => {
+    const grants = new GrantStore()
+    const registry = new ProviderRegistry()
+    const coordinator = new TargetCoordinator({ providers: registry, grants })
+    for (const bad of ['ftp://example.com', 'https://user:pass@example.com', 'not a url']) {
+      expect(() => new ViteTargetBroker({ coordinator, allowedOrigins: [bad] }))
+        .toThrow(/vite allowed origin/)
+    }
+  })
+
   it('settles a disconnected read by its call timeout even while tombstoned', async () => {
     vi.useFakeTimers()
     const grants = new GrantStore()

@@ -193,10 +193,12 @@ export class PageSocket {
         return
       }
       case 'error': {
-        // A protocol version mismatch is terminal: the host will never
-        // accept this runtime, so reconnecting would only burn backoff
-        // cycles without ever reaching a connected state.
-        if (frame.code === 'protocol_mismatch') {
+        // Deterministic rejections are terminal: the host will never
+        // accept this runtime (version mismatch) or this page (origin not
+        // allowed, invalid registration, malformed frames), so reconnecting
+        // would only burn backoff cycles without ever reaching a connected
+        // state. Recovery is a page reload with corrected configuration.
+        if (frame.code === 'protocol_mismatch' || frame.code === 'permission_denied') {
           this.closeRequested = true
           this.stopHeartbeat()
           this.settleAll()

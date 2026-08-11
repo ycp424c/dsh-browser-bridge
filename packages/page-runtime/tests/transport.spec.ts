@@ -298,4 +298,23 @@ describe('page socket', () => {
     expect(sockets).toHaveLength(1)
     vi.useRealTimers()
   })
+
+  it('a permission_denied error frame stops reconnecting (terminal)', () => {
+    vi.useFakeTimers()
+    const calls: Array<{ operation: string; args: unknown; signal: AbortSignal }> = []
+    const { socket, sockets } = makeSocket(calls, { backoffBaseMs: 250, backoffMaxMs: 250 })
+    const first = sockets[0]!
+    first.open()
+    first.receive(JSON.stringify({
+      v: VITE_PAGE_PROTOCOL_VERSION,
+      type: 'error',
+      code: 'permission_denied',
+      message: 'vite target origin is not loopback or allowed',
+      retryable: false,
+    }))
+    first.close()
+    vi.advanceTimersByTime(60_000)
+    expect(sockets).toHaveLength(1)
+    vi.useRealTimers()
+  })
 })
