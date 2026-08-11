@@ -23,7 +23,7 @@ class FakeWebSocket implements PageWebSocket {
   sent: string[] = []
   closed = false
   onopen: (() => void) | null = null
-  onmessage: ((data: string) => void) | null = null
+  onmessage: ((event: MessageEvent) => void) | null = null
   onclose: (() => void) | null = null
   onerror: (() => void) | null = null
 
@@ -44,7 +44,7 @@ class FakeWebSocket implements PageWebSocket {
   }
 
   receive(text: string): void {
-    this.onmessage?.(text)
+    this.onmessage?.({ data: text } as MessageEvent)
   }
 
   frames(): Array<Record<string, unknown>> {

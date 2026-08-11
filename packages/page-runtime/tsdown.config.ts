@@ -8,4 +8,5 @@ export default defineConfig({
   dts: true,
   clean: true,
   outDir: 'lib',
+  outExtension: () => ({ js: '.js', dts: '.d.ts' }),
 })
