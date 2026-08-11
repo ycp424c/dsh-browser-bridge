@@ -6,6 +6,9 @@ import {
 import { GrantStore } from '../src/bridge/grant-store.ts'
 import { PairingStore } from '../src/bridge/pairing-store.ts'
 import { BridgeServer, type BridgeSocket } from '../src/bridge/server.ts'
+import { TargetCoordinator } from '../src/targets/coordinator.ts'
+import { ProviderRegistry } from '../src/targets/provider-registry.ts'
+import type { TargetBinding } from '../src/targets/types.ts'
 
 const EXT_A = 'chrome-extension://abcdefghijklmnopabcdefghijklmnop'
 const TAB = { tabId: 7, windowId: 2, title: 'Fixture', url: 'http://127.0.0.1:4173/' }
@@ -51,15 +54,42 @@ function makeServer(overrides: { toolTimeoutMs?: number } = {}): {
   server: BridgeServer
   pairing: PairingStore
   grants: GrantStore
+  coordinator: TargetCoordinator
+  registry: ProviderRegistry
 } {
   const pairing = new PairingStore()
   const grants = new GrantStore()
+  const registry = new ProviderRegistry()
+  const coordinator = new TargetCoordinator({ providers: registry, grants })
   const server = new BridgeServer({
     pairing,
-    grants,
+    coordinator,
     ...(overrides.toolTimeoutMs !== undefined ? { toolTimeoutMs: overrides.toolTimeoutMs } : {}),
   })
-  return { server, pairing, grants }
+  registry.register(server)
+  return { server, pairing, grants, coordinator, registry }
+}
+
+/** Offer one chrome grant bound to the live connection of the fixture. */
+function offerGrant(coordinator: TargetCoordinator, connectionId: string, grantId = 'g1'): string {
+  const target: TargetBinding = {
+    descriptor: {
+      targetId: 't'.repeat(43) as never,
+      provider: 'chrome-extension',
+      title: TAB.title,
+      url: TAB.url,
+      origin: 'http://127.0.0.1:4173',
+      generation: 0,
+      capabilities: ['observe', 'inspect', 'screenshot', 'act', 'navigate', 'wait', 'console', 'network'],
+    },
+    connectionId: connectionId as never,
+    logicalKey: `chrome:${TAB.windowId}:${TAB.tabId}`,
+  }
+  return coordinator.offerWithId(GrantId(grantId), {
+    sessionId: 'session-a',
+    expiresAt: Date.now() + 60_000,
+    target,
+  }).handle
 }
 
 /** Drive the hello handshake over a fake socket. */
@@ -108,10 +138,10 @@ describe('bridge server', () => {
   })
 
   it('correlates a tool call with its result and settles the promise', async () => {
-    const { server, pairing } = makeServer()
+    const { server, pairing, coordinator } = makeServer()
     const { socket, connectionId } = await connect(server, pairing)
-    const grantId = GrantId('g1')
-    const pending = server.request(grantId, 'observe', {}, new AbortController().signal)
+    offerGrant(coordinator, connectionId)
+    const pending = server.requestGrant(GrantId('g1'), 'observe', {}, new AbortController().signal)
     const call = socket.sentOf('tool.call') as ToolCallFrame | undefined
     expect(call).toBeDefined()
     expect(call!.operation).toBe('observe')
@@ -126,9 +156,10 @@ describe('bridge server', () => {
   })
 
   it('rejects the promise with the bridge error when the extension reports failure', async () => {
-    const { server, pairing } = makeServer()
-    const { socket } = await connect(server, pairing)
-    const pending = server.request(GrantId('g1'), 'inspect', {}, new AbortController().signal)
+    const { server, pairing, coordinator } = makeServer()
+    const { socket, connectionId } = await connect(server, pairing)
+    offerGrant(coordinator, connectionId)
+    const pending = server.requestGrant(GrantId('g1'), 'inspect', {}, new AbortController().signal)
     const call = socket.sentOf('tool.call') as ToolCallFrame | undefined
     const result: ToolResultFrame = {
       v: PROTOCOL_VERSION,
@@ -141,18 +172,20 @@ describe('bridge server', () => {
   })
 
   it('rejects pending WRITE calls when the connection closes', async () => {
-    const { server, pairing } = makeServer()
-    const { socket } = await connect(server, pairing)
-    const pending = server.request(GrantId('g1'), 'act', { action: { kind: 'press', key: 'Enter' } }, new AbortController().signal)
+    const { server, pairing, coordinator } = makeServer()
+    const { socket, connectionId } = await connect(server, pairing)
+    offerGrant(coordinator, connectionId)
+    const pending = server.requestGrant(GrantId('g1'), 'act', { action: { kind: 'press', key: 'Enter' } }, new AbortController().signal)
     socket.close()
     await expect(pending).rejects.toMatchObject({ code: 'bridge_disconnected' })
   })
 
   it('a replacement connection closes the prior one and retries pending reads', async () => {
-    const { server, pairing } = makeServer()
+    const { server, pairing, coordinator } = makeServer()
     const first = new FakeSocket()
-    await connect(server, pairing, first)
-    const pending = server.request(GrantId('g1'), 'observe', {}, new AbortController().signal)
+    const { connectionId } = await connect(server, pairing, first)
+    offerGrant(coordinator, connectionId)
+    const pending = server.requestGrant(GrantId('g1'), 'observe', {}, new AbortController().signal)
     const second = new FakeSocket()
     await connect(server, pairing, second)
     expect(first.closed).toBe(true)
@@ -168,26 +201,37 @@ describe('bridge server', () => {
   })
 
   it('aborts a pending call on signal abort', async () => {
-    const { server, pairing } = makeServer()
-    await connect(server, pairing)
+    const { server, pairing, coordinator } = makeServer()
+    const { connectionId } = await connect(server, pairing)
+    offerGrant(coordinator, connectionId)
     const controller = new AbortController()
-    const pending = server.request(GrantId('g1'), 'observe', {}, controller.signal)
+    const pending = server.requestGrant(GrantId('g1'), 'observe', {}, controller.signal)
     controller.abort()
     await expect(pending).rejects.toMatchObject({ code: 'bridge_disconnected' })
   })
 
   it('times out a pending call', async () => {
-    const { server, pairing } = makeServer({ toolTimeoutMs: 50 })
-    const { socket } = await connect(server, pairing)
-    const pending = server.request(GrantId('g1'), 'observe', {}, new AbortController().signal)
+    const { server, pairing, coordinator } = makeServer({ toolTimeoutMs: 50 })
+    const { socket, connectionId } = await connect(server, pairing)
+    offerGrant(coordinator, connectionId)
+    const pending = server.requestGrant(GrantId('g1'), 'observe', {}, new AbortController().signal)
     expect(socket.sentOf('tool.call')).toBeDefined()
     await expect(pending).rejects.toMatchObject({ code: 'timeout' })
   })
 
   it('rejects tool calls while disconnected', async () => {
+    const { server, pairing, coordinator } = makeServer()
+    const { socket, connectionId } = await connect(server, pairing)
+    offerGrant(coordinator, connectionId)
+    socket.close()
+    await expect(server.requestGrant(GrantId('g1'), 'observe', {}, new AbortController().signal))
+      .rejects.toMatchObject({ code: 'bridge_disconnected' })
+  })
+
+  it('rejects unknown grants before dispatch', async () => {
     const { server } = makeServer()
-    expect(() => server.request(GrantId('g1'), 'observe', {}, new AbortController().signal))
-      .toThrowError(expect.objectContaining({ code: 'bridge_disconnected' }))
+    await expect(server.requestGrant(GrantId('missing'), 'observe', {}, new AbortController().signal))
+      .rejects.toMatchObject({ code: 'grant_expired' })
   })
 
   it('accepts grant offers and replies with a non-secret handle', async () => {
@@ -211,6 +255,10 @@ describe('bridge server', () => {
       connectionId: ConnectionId(connectionId), sessionId: 'session-a', turn: 1,
     })
     expect(record.grantId).toBe(grantId)
+    expect(record.target.descriptor.provider).toBe('chrome-extension')
+    expect(record.target.logicalKey).toBe('chrome:2:7')
+    // The chrome provider keeps the exact tab snapshot for pre-step rendering.
+    expect(server.tabFor(grantId)).toEqual(TAB)
   })
 })
 

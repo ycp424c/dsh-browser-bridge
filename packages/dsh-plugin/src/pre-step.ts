@@ -175,13 +175,19 @@ export function createPreStepHandler(deps: PreStepHandlerDeps): PreStepHandler {
     for (let index = 0; index < markers.length; index += 1) {
       const marker = markers[index]!.marker
       const record = records[index]!
+      // Compat surface until Task 4: chrome grants keep their tab snapshot
+      // on the server; provider-neutral descriptors replace this rendering.
+      const tab = deps.server.tabFor(record.grantId)
+      if (tab === undefined) {
+        return { kind: 'reject' }
+      }
       let alias = aliasByGrantId.get(record.grantId)
       if (alias === undefined) {
         alias = `page_${pages.length + 1}`
         aliasByGrantId.set(record.grantId, alias)
-        pages.push({ alias, grantId: record.grantId, tab: record.tab })
+        pages.push({ alias, grantId: record.grantId, tab })
       }
-      summaries.set(marker, renderSummary(alias, record.tab))
+      summaries.set(marker, renderSummary(alias, tab))
     }
 
     if (current === undefined) {

@@ -13,6 +13,8 @@ import {
 import { GrantStore } from '../src/bridge/grant-store.ts'
 import { BridgeServer, type BridgeSocket } from '../src/bridge/server.ts'
 import { PairingStore } from '../src/bridge/pairing-store.ts'
+import { TargetCoordinator } from '../src/targets/coordinator.ts'
+import { ProviderRegistry } from '../src/targets/provider-registry.ts'
 import { createPreStepHandler, type PreStepHandlerDeps } from '../src/pre-step.ts'
 import { registerTurnTools } from '../src/tools/register.ts'
 import { FakeAttachments } from './fake-attachments.ts'
@@ -122,7 +124,10 @@ async function makeFixture(): Promise<Fixture> {
   const agent = await stubAgent(ctx, 'session-a')
   const pairing = new PairingStore()
   const grants = new GrantStore()
-  const server = new BridgeServer({ pairing, grants })
+  const registry = new ProviderRegistry()
+  const coordinator = new TargetCoordinator({ providers: registry, grants })
+  const server = new BridgeServer({ pairing, coordinator })
+  registry.register(server)
   const socket = new FakeSocket()
   server.attach(socket, EXT_A)
   const nonce = pairing.issue(EXT_A)
@@ -144,14 +149,23 @@ async function makeFixture(): Promise<Fixture> {
     handler.onTurnStopping(payload.agent, payload.turn)
   })
 
+  // Offer through the real extension wire path (grant.put frame), so the
+  // chrome provider stores the tab snapshot exactly as in production.
   const offer = (connection: string, sessionId: string, tab: TabDescriptor, grantId?: string): string => {
-    const record = grants.offer(connection, {
-      grantId: grantId === undefined ? GrantId(`g-${Math.random().toString(36).slice(2)}`) : GrantId(grantId),
+    const id = grantId === undefined ? `g-${Math.random().toString(36).slice(2)}` : grantId
+    socket.receive(JSON.stringify({
+      v: 1,
+      type: 'grant.put',
+      grantId: id,
       sessionId,
-      expiresAt: Date.now() + 60_000,
       tab,
-    })
-    return record.handle
+      expiresAt: Date.now() + 60_000,
+    }))
+    const accepted = socket.sent
+      .map(text => JSON.parse(text))
+      .find(frame => frame.type === 'grant.accepted' && frame.grantId === id) as { handle: string } | undefined
+    if (accepted === undefined) throw new Error('grant.put was not accepted')
+    return accepted.handle
   }
   return { ctx, agent, server, grants, pairing, socket, connectionId, offer }
 }
@@ -361,7 +375,7 @@ describe('pre-step marker consumption', () => {
     // the grant stays bound to the logical session.
     fixture.socket.close()
     expect(agent.ctx.tools.get('browser_observe', agent)).toBeDefined()
-    expect(grants.resolve(GrantId('g-transient'), connectionId)).toMatchObject({ grantId: 'g-transient' })
+    expect(grants.resolve(GrantId('g-transient'))).toMatchObject({ grantId: 'g-transient' })
     // A same-origin reconnect with a fresh nonce resumes the SAME session.
     const second = new FakeSocket()
     server.attach(second, EXT_A)
@@ -409,14 +423,9 @@ describe('pre-step marker consumption', () => {
 
   it('sanitizes the page summary URL and title', async () => {
     const fixture = await makeFixture()
-    const { ctx, agent, connectionId, grants } = fixture
-    const record = grants.offer(connectionId, {
-      grantId: GrantId('g-sanitize'),
-      sessionId: 'session-a',
-      expiresAt: Date.now() + 60_000,
-      tab: { tabId: 9, windowId: 1, title: 'S', url: 'http://127.0.0.1:4173/path?secret=1#frag' },
-    })
-    const decision = await proposeStep(ctx, agent, userMessage(`verify ${encodeMarker(record.handle)}`), 1)
+    const { ctx, agent, connectionId, offer } = fixture
+    const handle = offer(connectionId, 'session-a', { tabId: 9, windowId: 1, title: 'S', url: 'http://127.0.0.1:4173/path?secret=1#frag' }, 'g-sanitize')
+    const decision = await proposeStep(ctx, agent, userMessage(`verify ${encodeMarker(handle)}`), 1)
     const text = textOf(decision)
     expect(text).toContain('http://127.0.0.1:4173/path')
     expect(text).not.toContain('secret=1')
@@ -438,7 +447,7 @@ describe('pre-step marker consumption', () => {
       controller.abort()
       expect(agent.ctx.tools.get('browser_observe', agent)).toBeUndefined()
       expect(agent.ctx.tools.get('browser_act', agent)).toBeUndefined()
-      expect(() => grants.resolve(GrantId('g-abort'), connectionId)).toThrow(/grant/)
+      expect(() => grants.resolve(GrantId('g-abort'))).toThrow(/grant/)
       const revokes = socket.sent
         .map(text => JSON.parse(text) as { type?: string; grantId?: string })
         .filter(frame => frame.type === 'grant.revoke')
@@ -459,7 +468,7 @@ describe('pre-step marker consumption', () => {
       expect(second.kind).toBe('enter')
       expect(textOf(second)).toContain('id="page_1"')
       expect(agent.ctx.tools.get('browser_observe', agent)).toBeDefined()
-      expect(grants.resolve(GrantId('g-after-abort'), connectionId)).toBeDefined()
+      expect(grants.resolve(GrantId('g-after-abort'))).toBeDefined()
     })
 
     it('turn-stopping removes the abort listener (single cleanup, single revoke)', async () => {

@@ -11,6 +11,8 @@ import { GrantStore } from './bridge/grant-store.ts'
 import { attachWebSocket, BridgeServer } from './bridge/server.ts'
 import { createPreStepHandler } from './pre-step.ts'
 import { registerTurnTools } from './tools/register.ts'
+import { ProviderRegistry } from './targets/provider-registry.ts'
+import { TargetCoordinator } from './targets/coordinator.ts'
 
 export const name = '@dsh-external/dsh-browser-bridge'
 
@@ -39,7 +41,10 @@ export function apply(ctx: Context, config: ConfigShape): void {
   const resolved = Config(config)
   const pairing = new PairingStore({ pairingTtlMs: resolved.pairingTtlMs })
   const grants = new GrantStore()
-  const server = new BridgeServer({ pairing, grants, toolTimeoutMs: resolved.toolTimeoutMs })
+  const registry = new ProviderRegistry()
+  const coordinator = new TargetCoordinator({ providers: registry, grants })
+  const server = new BridgeServer({ pairing, coordinator, toolTimeoutMs: resolved.toolTimeoutMs })
+  registry.register(server)
   const wss = new WebSocketServer({ noServer: true })
   const preStep = createPreStepHandler({
     server,

@@ -1,8 +1,11 @@
 /**
- * Authenticated WebSocket carrier and request correlation. The server owns
- * exactly one authenticated extension connection; requests are correlated by
- * random request id and settled by `tool.result` frames, cancellation, the
- * tool timeout, or connection loss.
+ * Authenticated WebSocket carrier, request correlation, and the
+ * chrome-extension BrowserProvider. The server owns exactly one
+ * authenticated extension connection; requests are correlated by random
+ * request id and settled by `tool.result` frames, cancellation, the tool
+ * timeout, or connection loss. Grants live in the TargetCoordinator; this
+ * server normalizes incoming `TabDescriptor`s into provider-neutral target
+ * bindings and dispatches through the coordinator like any other provider.
  */
 import {
   bridgeError,
@@ -10,18 +13,23 @@ import {
   decodeFrame,
   encodeFrame,
   GrantId,
+  newTargetId,
   PROTOCOL_VERSION,
   RequestId,
   type BridgeFrame,
   type BridgeError,
   type BrowserOperation,
+  type BrowserTargetDescriptor,
   type ConnectionId as ConnectionIdBrand,
   type JsonValue,
+  type TabDescriptor,
 } from '@dsh-external/dsh-browser-bridge-protocol'
+import { BROWSER_OPERATIONS } from '@dsh-external/dsh-browser-bridge-protocol'
 import type { WebSocket } from 'ws'
-import { GrantStore } from './grant-store.ts'
 import { PairingStore } from './pairing-store.ts'
 import { isReadOperation } from '../tools/definitions.ts'
+import type { TargetCoordinator } from '../targets/coordinator.ts'
+import type { BrowserProvider, TargetBinding } from '../targets/types.ts'
 
 /** Socket face the server drives; the real transport wraps a `ws` socket. */
 export interface BridgeSocket {
@@ -33,12 +41,35 @@ export interface BridgeSocket {
 
 export interface BridgeServerOptions {
   pairing: PairingStore
-  grants: GrantStore
+  coordinator: TargetCoordinator
   now?: () => number
   randomId?: () => string
   toolTimeoutMs?: number
   /** How long a read-only call waits for a reconnected extension (default 10s). */
   readRetryWaitMs?: number
+}
+
+/**
+ * Normalize one immutable Chrome tab snapshot into the provider-neutral
+ * target descriptor. `tabId`/`windowId` stay provider-internal: they never
+ * enter the descriptor or any model-facing surface.
+ */
+export function chromeDescriptor(tab: TabDescriptor): BrowserTargetDescriptor {
+  let origin = ''
+  try {
+    origin = new URL(tab.url).origin
+  } catch {
+    // Non-parseable URLs keep an empty origin; they are rejected upstream.
+  }
+  return {
+    targetId: newTargetId(),
+    provider: 'chrome-extension',
+    title: tab.title,
+    url: tab.url,
+    origin,
+    generation: 0,
+    capabilities: [...BROWSER_OPERATIONS],
+  }
 }
 
 /** Adapter over a `ws` socket for the real DSH host transport. */
@@ -82,13 +113,16 @@ interface LiveConnection {
   origin: string
 }
 
-export class BridgeServer {
+export class BridgeServer implements BrowserProvider {
+  readonly kind = 'chrome-extension' as const
   private readonly pairing: PairingStore
-  private readonly grants: GrantStore
+  private readonly coordinator: TargetCoordinator
   private readonly now: () => number
   private readonly randomId: () => string
   private readonly toolTimeoutMs: number
   private readonly readRetryWaitMs: number
+  /** Tab snapshots of offered grants (compat surface for pre-step rendering). */
+  private readonly tabsByGrantId = new Map<string, TabDescriptor>()
   private connection: LiveConnection | null = null
   /** The last closed connection, so a reconnect from the SAME extension
    * origin resumes the same logical session (connection id preserved). */
@@ -106,7 +140,7 @@ export class BridgeServer {
 
   constructor(options: BridgeServerOptions) {
     this.pairing = options.pairing
-    this.grants = options.grants
+    this.coordinator = options.coordinator
     this.now = options.now ?? Date.now
     this.randomId = options.randomId ?? (() => {
       const buffer = new Uint8Array(32)
@@ -123,6 +157,135 @@ export class BridgeServer {
   get connectionId(): ConnectionIdBrand | undefined {
     return this.connection?.id
   }
+
+  /** The tab snapshot of one offered chrome grant (pre-step rendering). */
+  tabFor(grantId: GrantId): TabDescriptor | undefined {
+    return this.tabsByGrantId.get(grantId)
+  }
+
+  // --- BrowserProvider (chrome-extension) ------------------------------------
+
+  isConnected(target: TargetBinding): boolean {
+    return this.connection !== null && this.connection.id === target.connectionId
+  }
+
+  /**
+   * Provider-role dispatch: the coordinator allocated the request id and
+   * bound it to the grant; this implementation sends the correlated
+   * `tool.call` frame and waits for its result, cancellation, timeout, or
+   * connection loss. Read calls may retry once across a same-origin
+   * reconnect; accepted or mutating calls never replay.
+   */
+  async request(
+    target: TargetBinding,
+    requestId: RequestId,
+    operation: BrowserOperation,
+    args: JsonValue,
+    signal: AbortSignal,
+  ): Promise<JsonValue> {
+    const connection = this.connection
+    if (connection === null || connection.id !== target.connectionId) {
+      throw bridgeError('bridge_disconnected', 'browser extension is not connected', true)
+    }
+    if (signal.aborted) throw signal.reason
+    const grantId = this.coordinator.grantIdFor(requestId)
+    if (grantId === undefined) {
+      throw bridgeError('internal', 'request without a bound grant', false)
+    }
+    return new Promise((resolve, reject) => {
+      const pending: PendingCall = {
+        requestId,
+        operation,
+        grantId,
+        args,
+        resolve,
+        reject,
+        finish: () => {},
+        accepted: false,
+        retried: false,
+        retryTimer: null,
+      }
+      const finish = () => {
+        clearTimeout(timer)
+        if (pending.retryTimer !== null) clearTimeout(pending.retryTimer)
+        signal.removeEventListener('abort', onAbort)
+        this.pending.delete(pending.requestId)
+      }
+      pending.finish = finish
+      const onAbort = () => { finish(); reject(bridgeError('bridge_disconnected', 'browser call cancelled', false)) }
+      const timer = setTimeout(() => { finish(); reject(bridgeError('timeout', `${operation} timed out`, true)) }, this.toolTimeoutMs)
+      signal.addEventListener('abort', onAbort, { once: true })
+      this.pending.set(requestId, pending)
+      connection.socket.send(encodeFrame({
+        v: PROTOCOL_VERSION, type: 'tool.call', requestId, grantId, operation, args,
+      }))
+    })
+  }
+
+  /** Provider-role revocation: deliver the frame or queue it for reconnect. */
+  revoke(target: TargetBinding, grantId: GrantId): void {
+    this.tabsByGrantId.delete(grantId)
+    this.deliverRevokes(target.connectionId, [grantId])
+  }
+
+  // --- Public request/revoke surface -----------------------------------------
+
+  /**
+   * Dispatch one operation for one grant through the coordinator (turn
+   * tools). Named `requestGrant` because the provider-role interface method
+   * `request(target, requestId, ...)` must stay the same name.
+   */
+  requestGrant(
+    grantId: GrantId,
+    operation: BrowserOperation,
+    args: JsonValue,
+    signal: AbortSignal,
+  ): Promise<JsonValue> {
+    return this.coordinator.request(grantId, operation, args, signal)
+  }
+
+  /** Revoke every grant of a connection and notify the extension. */
+  revokeConnection(connectionId: string): GrantId[] {
+    const records = this.coordinator.revokeConnection(connectionId)
+    this.cancelPendingForGrants(records.map(record => record.grantId))
+    return records.map(record => record.grantId)
+  }
+
+  /**
+   * Revoke the grants of one turn and notify the extension. When the
+   * connection is down the revocations are queued for the next same-origin
+   * reconnect, and every pending call of the revoked grants is cancelled
+   * immediately — never retried or replayed.
+   */
+  revokeTurn(connectionId: string, sessionId: string, turn: number): GrantId[] {
+    const records = this.coordinator.revokeTurn(connectionId, sessionId, turn)
+    this.cancelPendingForGrants(records.map(record => record.grantId))
+    return records.map(record => record.grantId)
+  }
+
+  /**
+   * Close the connection and reject everything pending. Terminal for the
+   * whole bridge session: every remaining grant is revoked and the
+   * extension is notified before the socket closes.
+   */
+  dispose(): void {
+    if (this.connection !== null) {
+      const connection = this.connection
+      this.coordinator.revokeConnection(connection.id)
+      this.tabsByGrantId.clear()
+      this.connection = null
+      connection.socket.close()
+    }
+    this.handleConnectionLost(
+      bridgeError('bridge_disconnected', 'browser bridge disposed', true),
+      { retryReads: false },
+    )
+    this.lastConnection = null
+    // Terminal: no reconnect can ever flush the outbox again.
+    this.revokeOutbox.clear()
+  }
+
+  // --- Handshake and connection lifecycle ------------------------------------
 
   /**
    * Attach one socket and run the pairing handshake: the first frame must be
@@ -228,7 +391,7 @@ export class BridgeServer {
         // session continues under the same connection id.
         connectionId = prior.id
       } else {
-        this.sendRevokes(prior.socket, this.grants.revokeConnection(prior.id))
+        this.coordinator.revokeConnection(prior.id)
         // The prior session is TERMINAL: its outbox can never be resumed
         // under the same id, and a later reconnect from that extension is a
         // fresh logical session (its own sessionChanged revokes locally).
@@ -313,95 +476,6 @@ export class BridgeServer {
     }
   }
 
-  /**
-   * Send one tool request and wait for its correlated result. The pending
-   * entry is stored before the frame is sent and removed on every settlement
-   * path (result, abort, timeout, disconnect, replacement).
-   */
-  request(
-    grantId: GrantId,
-    operation: BrowserOperation,
-    args: JsonValue,
-    signal: AbortSignal,
-  ): Promise<JsonValue> {
-    const connection = this.connection
-    if (connection === null) {
-      throw bridgeError('bridge_disconnected', 'browser extension is not connected', true)
-    }
-    if (signal.aborted) throw signal.reason
-    const requestId = RequestId(this.randomId())
-    return new Promise((resolve, reject) => {
-      const pending: PendingCall = {
-        requestId,
-        operation,
-        grantId,
-        args,
-        resolve,
-        reject,
-        finish: () => {},
-        accepted: false,
-        retried: false,
-        retryTimer: null,
-      }
-      const finish = () => {
-        clearTimeout(timer)
-        if (pending.retryTimer !== null) clearTimeout(pending.retryTimer)
-        signal.removeEventListener('abort', onAbort)
-        this.pending.delete(pending.requestId)
-      }
-      pending.finish = finish
-      const onAbort = () => { finish(); reject(bridgeError('bridge_disconnected', 'browser call cancelled', false)) }
-      const timer = setTimeout(() => { finish(); reject(bridgeError('timeout', `${operation} timed out`, true)) }, this.toolTimeoutMs)
-      signal.addEventListener('abort', onAbort, { once: true })
-      this.pending.set(requestId, pending)
-      connection.socket.send(encodeFrame({
-        v: PROTOCOL_VERSION, type: 'tool.call', requestId, grantId, operation, args,
-      }))
-    })
-  }
-
-  /** Revoke every grant of a connection and notify the extension. */
-  revokeConnection(connectionId: string): GrantId[] {
-    const affected = this.grants.revokeConnection(connectionId)
-    this.deliverRevokes(connectionId, affected)
-    this.cancelPendingForGrants(affected)
-    return affected
-  }
-
-  /**
-   * Revoke the grants of one turn and notify the extension. When the
-   * connection is down the revocations are queued for the next same-origin
-   * reconnect, and every pending call of the revoked grants is cancelled
-   * immediately — never retried or replayed.
-   */
-  revokeTurn(connectionId: string, sessionId: string, turn: number): GrantId[] {
-    const affected = this.grants.revokeTurn(connectionId, sessionId, turn)
-    this.deliverRevokes(connectionId, affected)
-    this.cancelPendingForGrants(affected)
-    return affected
-  }
-
-  /**
-   * Close the connection and reject everything pending. Terminal for the
-   * whole bridge session: every remaining grant is revoked and the
-   * extension is notified before the socket closes.
-   */
-  dispose(): void {
-    if (this.connection !== null) {
-      const connection = this.connection
-      this.sendRevokes(connection.socket, this.grants.revokeConnection(connection.id))
-      this.connection = null
-      connection.socket.close()
-    }
-    this.handleConnectionLost(
-      bridgeError('bridge_disconnected', 'browser bridge disposed', true),
-      { retryReads: false },
-    )
-    this.lastConnection = null
-    // Terminal: no reconnect can ever flush the outbox again.
-    this.revokeOutbox.clear()
-  }
-
   /** Handle one authenticated inbound frame from the live connection. */
   private receive(frame: BridgeFrame, socket: BridgeSocket): void {
     switch (frame.type) {
@@ -419,12 +493,17 @@ export class BridgeServer {
       case 'grant.put': {
         if (this.connection?.socket !== socket) return
         try {
-          const record = this.grants.offer(this.connection.id, {
-            grantId: frame.grantId,
+          const target: TargetBinding = {
+            descriptor: chromeDescriptor(frame.tab),
+            connectionId: this.connection.id,
+            logicalKey: 'chrome:' + String(frame.tab.windowId) + ':' + String(frame.tab.tabId),
+          }
+          const record = this.coordinator.offerWithId(frame.grantId, {
             sessionId: frame.sessionId,
             expiresAt: frame.expiresAt,
-            tab: frame.tab,
+            target,
           })
+          this.tabsByGrantId.set(frame.grantId, frame.tab)
           socket.send(encodeFrame({
             v: PROTOCOL_VERSION, type: 'grant.accepted', grantId: record.grantId, handle: record.handle,
           }))
@@ -440,7 +519,7 @@ export class BridgeServer {
         return
       }
       case 'grant.revoke':
-        this.grants.revoke(frame.grantId)
+        this.coordinator.revoke(GrantId(frame.grantId))
         return
       case 'tool.result': {
         const pending = this.pending.get(frame.requestId)

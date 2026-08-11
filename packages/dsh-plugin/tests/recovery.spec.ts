@@ -6,6 +6,9 @@ import {
 import { GrantStore } from '../src/bridge/grant-store.ts'
 import { PairingStore } from '../src/bridge/pairing-store.ts'
 import { BridgeServer, type BridgeSocket } from '../src/bridge/server.ts'
+import { TargetCoordinator } from '../src/targets/coordinator.ts'
+import { ProviderRegistry } from '../src/targets/provider-registry.ts'
+import type { TargetBinding } from '../src/targets/types.ts'
 
 const EXT_A = 'chrome-extension://abcdefghijklmnopabcdefghijklmnop'
 const EXT_B = 'chrome-extension://bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
@@ -44,7 +47,10 @@ interface Fixture {
 async function makeFixture(): Promise<Fixture> {
   const pairing = new PairingStore()
   const grants = new GrantStore()
-  const server = new BridgeServer({ pairing, grants, toolTimeoutMs: 60_000, readRetryWaitMs: 120 })
+  const registry = new ProviderRegistry()
+  const coordinator = new TargetCoordinator({ providers: registry, grants })
+  const server = new BridgeServer({ pairing, coordinator, toolTimeoutMs: 60_000, readRetryWaitMs: 120 })
+  registry.register(server)
   const socket = new FakeSocket()
   server.attach(socket, EXT_A)
   const nonce = pairing.issue(EXT_A)
@@ -53,11 +59,23 @@ async function makeFixture(): Promise<Fixture> {
   const ok = socket.sentOf('hello.ok') as { connectionId: string }
   const connectionId = ok.connectionId
   const grantId = GrantId('g-retry')
-  grants.offer(connectionId, {
-    grantId,
+  const target: TargetBinding = {
+    descriptor: {
+      targetId: 't'.repeat(43),
+      provider: 'chrome-extension',
+      title: 'Fixture',
+      url: FIXTURE_URL,
+      origin: 'http://127.0.0.1:4173',
+      generation: 0,
+      capabilities: ['observe', 'inspect', 'screenshot', 'act', 'navigate', 'wait', 'console', 'network'],
+    },
+    connectionId: connectionId as never,
+    logicalKey: 'chrome:2:7',
+  }
+  coordinator.offerWithId(grantId, {
     sessionId: 'session-a',
     expiresAt: Date.now() + 60_000,
-    tab: { tabId: 7, windowId: 2, title: 'Fixture', url: FIXTURE_URL },
+    target,
   })
   return { server, pairing, grants, connectionId, grantId, socket }
 }
@@ -82,7 +100,7 @@ describe('bridge recovery', () => {
     const { server, grantId } = fixture
     const firstSocket = fixture.socket
     const signal = new AbortController().signal
-    const pending = server.request(grantId, 'observe', {}, signal)
+    const pending = server.requestGrant(grantId, 'observe', {}, signal)
     firstSocket.close()
     const secondSocket = new FakeSocket()
     server.acceptAuthenticated(secondSocket, fixture.connectionId as never)
@@ -96,7 +114,7 @@ describe('bridge recovery', () => {
     const fixture = await makeFixture()
     const { server, grantId } = fixture
     const firstSocket = fixture.socket
-    const pending = server.request(grantId, 'observe', {}, new AbortController().signal)
+    const pending = server.requestGrant(grantId, 'observe', {}, new AbortController().signal)
     firstSocket.close()
     const secondSocket = new FakeSocket()
     server.acceptAuthenticated(secondSocket, fixture.connectionId as never)
@@ -108,7 +126,7 @@ describe('bridge recovery', () => {
   it('gives up a read retry after the bounded wait', async () => {
     const fixture = await makeFixture()
     const { server, grantId } = fixture
-    const pending = server.request(grantId, 'observe', {}, new AbortController().signal)
+    const pending = server.requestGrant(grantId, 'observe', {}, new AbortController().signal)
     fixture.socket.close()
     await expect(pending).rejects.toMatchObject({ code: 'bridge_disconnected' })
   })
@@ -120,7 +138,7 @@ describe('bridge recovery', () => {
     const args = operation === 'act'
       ? { action: { kind: 'click', selector: '#save' } }
       : { url: 'http://127.0.0.1:4173/next' }
-    const pending = server.request(grantId, operation, args, new AbortController().signal)
+    const pending = server.requestGrant(grantId, operation, args, new AbortController().signal)
     const firstCall = firstSocket.sentOf('tool.call') as ToolCallFrame
     firstSocket.receive(toolAcceptedFor(firstCall.requestId))
     firstSocket.close()
@@ -133,7 +151,7 @@ describe('bridge recovery', () => {
   it('rejects writes on disconnect even without acknowledgement', async () => {
     const fixture = await makeFixture()
     const { server, grantId } = fixture
-    const pending = server.request(grantId, 'act', { action: { kind: 'press', key: 'Enter' } }, new AbortController().signal)
+    const pending = server.requestGrant(grantId, 'act', { action: { kind: 'press', key: 'Enter' } }, new AbortController().signal)
     fixture.socket.close()
     const secondSocket = new FakeSocket()
     server.acceptAuthenticated(secondSocket, fixture.connectionId as never)
@@ -145,7 +163,7 @@ describe('bridge recovery', () => {
     const fixture = await makeFixture()
     const { server, grantId } = fixture
     const firstSocket = fixture.socket
-    const pending = server.request(grantId, 'observe', {}, new AbortController().signal)
+    const pending = server.requestGrant(grantId, 'observe', {}, new AbortController().signal)
     const call = firstSocket.sentOf('tool.call') as ToolCallFrame
     // The extension executed and answered; the host already settled.
     firstSocket.receive(toolResultFor(call.requestId, { page: { url: FIXTURE_URL } }))
@@ -169,7 +187,7 @@ describe('bridge recovery', () => {
   it('terminal dispose revokes grants, notifies the extension, and rejects pending calls', async () => {
     const fixture = await makeFixture()
     const { server, grants, grantId, socket } = fixture
-    const pending = server.request(grantId, 'observe', {}, new AbortController().signal)
+    const pending = server.requestGrant(grantId, 'observe', {}, new AbortController().signal)
     server.dispose()
     // Every grant of the connection is gone on both sides: the store is
     // empty and the extension received grant.revoke before the socket closed.
@@ -182,7 +200,7 @@ describe('bridge recovery', () => {
   it('a foreign takeover revokes the prior grants and never retries its reads', async () => {
     const fixture = await makeFixture()
     const { server, pairing, grants, grantId, socket: firstSocket } = fixture
-    const pending = server.request(grantId, 'observe', {}, new AbortController().signal)
+    const pending = server.requestGrant(grantId, 'observe', {}, new AbortController().signal)
     const secondSocket = new FakeSocket()
     server.attach(secondSocket, EXT_B)
     const nonce = pairing.issue(EXT_B)
@@ -215,10 +233,10 @@ describe('bridge recovery', () => {
     const fixture = await makeFixture()
     const { server, pairing, grants, connectionId, grantId, socket: firstSocket } = fixture
     // The turn consumed the grant (pre-step), so turn cleanup owns it.
-    const record = grants.resolve(grantId, connectionId)
+    const record = grants.resolve(grantId)
     grants.consume(record.handle, { connectionId, sessionId: 'session-a', turn: 1 })
     // Attach the CDP session: the extension is active on this grant.
-    const pending = server.request(grantId, 'observe', {}, new AbortController().signal)
+    const pending = server.requestGrant(grantId, 'observe', {}, new AbortController().signal)
     firstSocket.receive(toolAcceptedFor((firstSocket.sentOf('tool.call') as ToolCallFrame).requestId))
     // The socket drops TRANSIENTLY: the logical session survives, but the
     // extension can no longer receive frames.
@@ -250,9 +268,9 @@ describe('bridge recovery', () => {
   it('revokeTurn rejects pending calls of the revoked grants immediately and never replays them', async () => {
     const fixture = await makeFixture()
     const { server, grants, connectionId, grantId, socket: firstSocket } = fixture
-    const record = grants.resolve(grantId, connectionId)
+    const record = grants.resolve(grantId)
     grants.consume(record.handle, { connectionId, sessionId: 'session-a', turn: 1 })
-    const pending = server.request(grantId, 'observe', {}, new AbortController().signal)
+    const pending = server.requestGrant(grantId, 'observe', {}, new AbortController().signal)
     firstSocket.receive(toolAcceptedFor((firstSocket.sentOf('tool.call') as ToolCallFrame).requestId))
     // The socket drops and the read retry window is armed...
     firstSocket.close()
@@ -270,7 +288,7 @@ describe('bridge recovery', () => {
   it('a foreign takeover still fails closed when turn revocations were queued', async () => {
     const fixture = await makeFixture()
     const { server, pairing, grants, connectionId, grantId, socket: firstSocket } = fixture
-    const record = grants.resolve(grantId, connectionId)
+    const record = grants.resolve(grantId)
     grants.consume(record.handle, { connectionId, sessionId: 'session-a', turn: 1 })
     firstSocket.close()
     server.revokeTurn(connectionId, 'session-a', 1)
