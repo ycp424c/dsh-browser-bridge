@@ -65,11 +65,13 @@ export class ConsoleCapture {
       }
       consoleObject[level] = wrapped as typeof consoleObject[typeof level]
     }
-    const onError = (event: ErrorEvent): void => {
-      this.push('error', event.message || String(event.error ?? ''))
+    const onError = (event: Event): void => {
+      const errorEvent = event as ErrorEvent
+      this.push('error', errorEvent.message || String(errorEvent.error ?? ''))
     }
-    const onRejection = (event: PromiseRejectionEvent): void => {
-      this.push('error', event.reason instanceof Error ? event.reason.message : primitiveSafe(event.reason))
+    const onRejection = (event: Event): void => {
+      const reason = (event as PromiseRejectionEvent).reason
+      this.push('error', reason instanceof Error ? reason.message : primitiveSafe(reason))
     }
     window.addEventListener('error', onError)
     window.addEventListener('unhandledrejection', onRejection)
