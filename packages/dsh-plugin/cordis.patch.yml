@@ -1,11 +1,12 @@
 # dsh-browser-bridge profile bundle patch: one row mounting the external
 # plugin into the web profile. Applied as a bundle layer over the web-app
 # tree; defaults come from the plugin's Config schema. The entry injects the
-# web route carrier and the attachment store so the pairing/upgrade routes
-# and screenshot evidence can register.
+# web route carrier, attachment store, and model registry so routes can mount
+# and screenshot evidence is admitted only for image-capable models.
 - insert:
     - id: dsh-browser-bridge
       name: '@dsh-external/dsh-browser-bridge'
       inject:
         - httpServer
         - attachments
+        - llm

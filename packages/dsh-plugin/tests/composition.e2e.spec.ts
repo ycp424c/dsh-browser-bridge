@@ -16,6 +16,7 @@ import WebServer from '@deepseek-ai/dsh-host-webserver'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import { WebSocket } from 'ws'
 import { FakeAttachments } from './fake-attachments.ts'
+import { FakeLlm } from './fake-llm.ts'
 import {
   GrantId, newGrantId, PROTOCOL_VERSION, VITE_PAGE_PROTOCOL_VERSION, encodeMarker,
   type BridgeFrame, type GrantAcceptedFrame, type GrantPutFrame,
@@ -276,6 +277,7 @@ async function makeComposition(): Promise<Composition> {
   // The bridge plugin owns the attachment dependency. The agent scope minted
   // below intentionally mirrors DSH 0810's narrower AgentLoop dependencies.
   await ctx.plugin(FakeAttachments)
+  await ctx.plugin(FakeLlm)
   await ctx.plugin(Loader, { baseUrl: pathToFileURL(profileDir).href })
   ctx.loader.builtins.include = Include
   await ctx.loader.create({
@@ -288,7 +290,7 @@ async function makeComposition(): Promise<Composition> {
         insert: [{
           id: 'dsh-browser-bridge',
           name: '@dsh-external/dsh-browser-bridge',
-          inject: ['httpServer', 'attachments'],
+          inject: ['httpServer', 'attachments', 'llm'],
         }],
       }],
     },

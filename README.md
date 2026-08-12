@@ -87,12 +87,14 @@ DSH agent runtime
 | --- | --- |
 | `browser_observe` | 返回页面身份、生命周期状态、语义化 DOM/无障碍内容，以及短生命周期的元素引用 |
 | `browser_inspect` | 查询指定元素（引用或选择器）的属性、文本、计算样式、几何信息与可见性 |
-| `browser_screenshot` | 截取当前视口或指定元素，并返回图片附件证据 |
+| `browser_screenshot` | 截取当前视口或指定元素，并返回图片附件证据；仅当前模型明确支持图片输入时执行 |
 | `browser_act` | 点击、输入、选择、悬停、聚焦、按键、滚动 |
 | `browser_navigate` | 打开 HTTP(S) 地址、后退/前进、刷新 |
 | `browser_wait` | 等待元素、文本、URL、生命周期状态，或一段有界的页面稳定窗口 |
 | `browser_console` | 返回标签页被附加以来观察到的 console 错误与相关日志 |
 | `browser_network` | 返回标签页被附加以来失败的请求与加载错误（不含请求头与请求体） |
+
+`browser_screenshot` 会在访问浏览器前检查当前 DSH provider/model 的图片输入能力。DeepSeek chat-completions 等纯文本模型会收到可恢复的文本工具错误，并可继续改用 `browser_observe` / `browser_inspect`；截图不会写入会话历史，也不会导致后续轮次持续失败。
 
 元素引用是短生命周期的：页面导航会使全部引用失效，DOM 替换可能使个别引用失效，工具此时返回 `stale_element` 而不是猜测其他目标。
 

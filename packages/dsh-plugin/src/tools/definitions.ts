@@ -10,7 +10,7 @@ import { Buffer } from 'node:buffer'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { AttachmentStore, ImageAttachmentRef, ImageMediaType } from '@deepseek-ai/dsh-attachment'
-import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
+import type { ToolDefinition, ToolExecution } from '@deepseek-ai/dsh-tools'
 import {
   bridgeErrorSchema,
   type BrowserOperation,
@@ -37,6 +37,12 @@ export interface BrowserToolsDeps {
   ): Promise<JsonValue>
   /** Durable attachment store; screenshot bytes commit through `saveImage`. */
   attachments: AttachmentStore
+  /** Resolve the exact active model route before emitting durable image content. */
+  resolveModelInfo(
+    provider: string,
+    model: string,
+    signal: AbortSignal,
+  ): Promise<{ inputModalities?: readonly ('text' | 'image')[] }>
 }
 
 /** Every model-facing browser tool name, keyed by wire operation. */
@@ -101,13 +107,12 @@ const JSON_TEXT_RENDER = (_args: unknown, value: JsonValue): ContentBlock[] => [
   { type: 'text', text: JSON.stringify(value, null, 2) },
 ]
 
-/** Forward one resolved-page operation; bridge failures normalize to HarnessError. */
-async function forwardRequest(
+/** Resolve and authorize one page operation without dispatching browser I/O. */
+function prepareRequest(
   deps: BrowserToolsDeps,
   operation: BrowserOperation,
   args: unknown,
-  signal: AbortSignal,
-): Promise<unknown> {
+): { grantId: GrantId; args: JsonValue } {
   const raw = (args ?? {}) as Record<string, unknown>
   const page = typeof raw.page === 'string' ? raw.page : undefined
   const resolved = deps.resolvePage(page)
@@ -121,11 +126,31 @@ async function forwardRequest(
   }
   const { grantId } = resolved
   const { page: _page, ...rest } = raw
+  return { grantId, args: rest as JsonValue }
+}
+
+/** Dispatch one already-authorized page operation; bridge failures normalize to HarnessError. */
+async function dispatchRequest(
+  deps: BrowserToolsDeps,
+  operation: BrowserOperation,
+  prepared: { grantId: GrantId; args: JsonValue },
+  signal: AbortSignal,
+): Promise<unknown> {
   try {
-    return await deps.request(grantId, operation, rest as JsonValue, signal)
+    return await deps.request(prepared.grantId, operation, prepared.args, signal)
   } catch (error) {
     return bridgeFailure(error)
   }
+}
+
+/** Forward one resolved-page operation. */
+async function forwardRequest(
+  deps: BrowserToolsDeps,
+  operation: BrowserOperation,
+  args: unknown,
+  signal: AbortSignal,
+): Promise<unknown> {
+  return dispatchRequest(deps, operation, prepareRequest(deps, operation, args), signal)
 }
 
 type ToolBuilder = (deps: BrowserToolsDeps) => ToolDefinition
@@ -144,6 +169,22 @@ const execute =
   (deps: BrowserToolsDeps, operation: BrowserOperation) =>
   (args: unknown, exec: { signal: AbortSignal }): Promise<unknown> =>
     forwardRequest(deps, operation, args, exec.signal)
+
+/** Refuse durable screenshot output unless the exact calling route accepts images. */
+async function assertImageCapableRoute(deps: BrowserToolsDeps, exec: ToolExecution): Promise<void> {
+  const routed = exec.agent?.session.requestHeader()?.config
+  const provider = routed?.provider ?? exec.agent?.options.provider
+  const model = routed?.model ?? exec.agent?.options.model
+  if (provider === undefined || model === undefined) {
+    throw new Error('browser_screenshot: the current model route could not be resolved')
+  }
+  const active = await deps.resolveModelInfo(provider, model, exec.signal)
+  if (active.inputModalities === undefined || !active.inputModalities.includes('image')) {
+    throw new Error(
+      `browser_screenshot: model "${model}" does not declare image input; switch to an image-capable model or use browser_observe`,
+    )
+  }
+}
 
 const TOOL_BUILDERS: Record<BrowserOperation, ToolBuilder> = {
     observe: deps => ({
@@ -188,7 +229,7 @@ const TOOL_BUILDERS: Record<BrowserOperation, ToolBuilder> = {
     }),
     screenshot: deps => ({
       name: 'browser_screenshot',
-      description: 'Capture the current viewport or a referenced element as a PNG screenshot.',
+      description: 'Capture the current viewport or a referenced element as a PNG screenshot. Requires the current model to accept image input.',
       parameters: {
         type: 'object',
         additionalProperties: false,
@@ -210,9 +251,16 @@ const TOOL_BUILDERS: Record<BrowserOperation, ToolBuilder> = {
       },
       isConcurrencySafe: () => true,
       execute: async (args, exec) => {
+        // Resolve the page capability first so Vite targets retain their
+        // precise unsupported-operation error without browser I/O.
+        const prepared = prepareRequest(deps, 'screenshot', args)
+        // A screenshot result is persisted in tool history. Gate before any
+        // browser I/O so a text-only route can continue with a text error
+        // instead of poisoning all later requests with image content.
+        await assertImageCapableRoute(deps, exec)
         // The bridge returns encoded bytes; commit them to the attachment
         // store so the model-visible result carries only the durable ref.
-        const shot = await forwardRequest(deps, 'screenshot', args, exec.signal) as {
+        const shot = await dispatchRequest(deps, 'screenshot', prepared, exec.signal) as {
           url: string
           width: number
           height: number

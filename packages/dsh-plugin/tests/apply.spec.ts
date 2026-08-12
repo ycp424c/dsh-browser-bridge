@@ -5,6 +5,7 @@ import type { Duplex } from 'node:stream'
 import type { WebRoute, WebUpgradeRoute } from '@deepseek-ai/dsh-host-webserver'
 import { apply, Config, inject, name } from '../src/index.ts'
 import { FakeAttachments } from './fake-attachments.ts'
+import { FakeLlm } from './fake-llm.ts'
 
 class FakeHttpServer extends Service {
   readonly routes = new Map<string, WebRoute>()
@@ -72,8 +73,9 @@ async function readPairing(ctx: Context, origin: string): Promise<{ status: numb
 async function mount(): Promise<{ ctx: Context; server: FakeHttpServer }> {
   const ctx = new Context()
   await ctx.plugin(FakeHttpServer)
-  // The plugin's inject list requires both httpServer and attachments.
+  // The plugin's inject list requires routing, attachments, and model metadata.
   await ctx.plugin(FakeAttachments)
+  await ctx.plugin(FakeLlm)
   // The loader assembles { apply, inject, Config } from the module exports.
   await ctx.plugin({ apply, inject, Config, name }, {})
   const server = ctx.get('httpServer') as unknown as FakeHttpServer

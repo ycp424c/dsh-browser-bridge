@@ -41,12 +41,25 @@ const SHOT_REF: ImageAttachmentRef = {
 }
 
 const signal = new AbortController().signal
+const VISION_AGENT = {
+  options: {},
+  session: {
+    requestHeader: () => ({ config: { provider: 'visual', model: 'vision-model' } }),
+  },
+} as unknown as Agent
+const imageExecution = { signal, agent: VISION_AGENT } as never
 
 function makeDeps(
   pages: PageAlias[],
   request: (grantId: GrantId, operation: BrowserOperation, args: JsonValue, signal: AbortSignal) => Promise<JsonValue> =
     async () => ({ ok: true }),
   saveImage: (input: SaveImageAttachment) => Promise<ImageAttachmentRef> = async () => SHOT_REF,
+  resolveModelInfo: (
+    provider: string,
+    model: string,
+    signal: AbortSignal,
+  ) => Promise<{ inputModalities?: readonly ('text' | 'image')[] }> =
+    async () => ({ inputModalities: ['text', 'image'] }),
 ): BrowserToolsDeps {
   return {
     resolvePage: (page?: string) => {
@@ -60,7 +73,8 @@ function makeDeps(
     },
     request,
     attachments: { saveImage } as unknown as AttachmentStore,
-  }
+    resolveModelInfo,
+  } as BrowserToolsDeps
 }
 
 describe('browser tool definitions', () => {
@@ -257,7 +271,7 @@ describe('browser tool definitions', () => {
       return SHOT_REF
     }))
     const screenshot = tools.find(tool => tool.name === 'browser_screenshot')!
-    const result = await screenshot.execute({}, { signal } as never) as Record<string, unknown>
+    const result = await screenshot.execute({}, imageExecution) as Record<string, unknown>
 
     expect(saved).toHaveLength(1)
     expect(saved[0]!.mediaType).toBe('image/png')
@@ -269,6 +283,44 @@ describe('browser tool definitions', () => {
     const json = JSON.stringify(result)
     expect(json).not.toContain('aGVsbG8=')
     expect(json).not.toContain('"data"')
+  })
+
+  it('refuses screenshots before browser I/O when the current model is text-only', async () => {
+    const pages: PageAlias[] = [{ alias: 'page_1', grantId: GrantId('g1'), target: CHROME_TARGET }]
+    const requested: BrowserOperation[] = []
+    const saved: SaveImageAttachment[] = []
+    const tools = createBrowserTools(makeDeps(
+      pages,
+      async (_grantId, operation) => {
+        requested.push(operation)
+        return {
+          mimeType: 'image/png', data: 'aGVsbG8=', url: TAB.url, width: 800, height: 600,
+        }
+      },
+      async input => {
+        saved.push(input)
+        return SHOT_REF
+      },
+      async (provider, model) => {
+        expect(provider).toBe('deepseek-official')
+        expect(model).toBe('deepseek-v4-flash')
+        return { inputModalities: ['text'] }
+      },
+    ))
+    const screenshot = tools.find(tool => tool.name === 'browser_screenshot')!
+    const agent = {
+      options: {},
+      session: {
+        requestHeader: () => ({
+          config: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+        }),
+      },
+    } as unknown as Agent
+
+    await expect(screenshot.execute({}, { signal, agent } as never))
+      .rejects.toThrow(/does not declare image input/)
+    expect(requested).toEqual([])
+    expect(saved).toEqual([])
   })
 
   it('screenshot execute rejects unsupported media types before saving', async () => {
@@ -285,7 +337,7 @@ describe('browser tool definitions', () => {
       return SHOT_REF
     }))
     const screenshot = tools.find(tool => tool.name === 'browser_screenshot')!
-    await expect(screenshot.execute({}, { signal } as never)).rejects.toThrow(/unsupported media type/)
+    await expect(screenshot.execute({}, imageExecution)).rejects.toThrow(/unsupported media type/)
     expect(saved).toHaveLength(0)
   })
 
@@ -298,7 +350,7 @@ describe('browser tool definitions', () => {
     }))
     const screenshot = tools.find(tool => tool.name === 'browser_screenshot')!
     const network = tools.find(tool => tool.name === 'browser_network')!
-    await expect(screenshot.execute({ page: 'page_1' }, { signal } as never))
+    await expect(screenshot.execute({ page: 'page_1' }, imageExecution))
       .rejects.toMatchObject({ name: 'HarnessError', code: 'unsupported_operation' })
     await expect(network.execute({ page: 'page_1' }, { signal } as never))
       .rejects.toMatchObject({ name: 'HarnessError', code: 'unsupported_operation' })
@@ -333,9 +385,9 @@ describe('browser tool definitions', () => {
       return {}
     }))
     const screenshot = tools.find(tool => tool.name === 'browser_screenshot')!
-    await screenshot.execute({ page: 'page_1' }, { signal } as never)
+    await screenshot.execute({ page: 'page_1' }, imageExecution)
     expect(called).toEqual(['screenshot'])
-    await expect(screenshot.execute({ page: 'page_2' }, { signal } as never))
+    await expect(screenshot.execute({ page: 'page_2' }, imageExecution))
       .rejects.toMatchObject({ code: 'unsupported_operation' })
     expect(called).toEqual(['screenshot'])
   })

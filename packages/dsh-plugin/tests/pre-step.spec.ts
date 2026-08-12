@@ -152,6 +152,12 @@ async function makeFixture(): Promise<Fixture> {
     registerTurnTools: (agent, turn) => registerTurnTools(agent, turn, {
       coordinator,
       attachments: ctx.attachments,
+      resolveModelInfo: async (provider, model) => ({
+        provider,
+        id: model,
+        name: model,
+        inputModalities: ['text', 'image'],
+      }),
     }),
   }
   const handler = createPreStepHandler(deps)
@@ -449,6 +455,91 @@ describe('pre-step marker consumption', () => {
     await fireTurnStopping(ctx, agent, 1)
     const second = await proposeStep(ctx, agent, userMessage(`again ${encodeMarker(handle)}`), 2)
     expect(second.kind).toBe('reject')
+  })
+
+  it('recovers a later attachment after the previous turn failed without stopping or aborting', async () => {
+    const fixture = await makeFixture()
+    const { ctx, agent, connectionId, offer, grants, socket } = fixture
+    const firstHandle = offer(connectionId, 'session-a', TAB, 'g-failed-turn')
+    await proposeStep(ctx, agent, userMessage(`verify ${encodeMarker(firstHandle)}`), 1)
+    expect(agent.ctx.tools.get('browser_observe', agent)).toBeDefined()
+
+    // A model/adapter error ends the DSH turn without dispatching
+    // `agent/turn-stopping` or aborting the turn signal. The next attachment
+    // must self-heal the stale scope before registering fresh tools.
+    const secondHandle = offer(connectionId, 'session-a', TAB2, 'g-after-failure')
+    const second = await proposeStep(ctx, agent, userMessage(`retry ${encodeMarker(secondHandle)}`), 2)
+
+    expect(second.kind).toBe('enter')
+    expect(textOf(second)).toContain('id="page_1"')
+    expect(textOf(second)).toContain(TAB2.url)
+    expect(agent.ctx.tools.get('browser_observe', agent)).toBeDefined()
+    expect(() => grants.resolve(GrantId('g-failed-turn'))).toThrow(/grant/)
+    expect(grants.resolve(GrantId('g-after-failure'))).toBeDefined()
+    expect(socket.frames().filter(frame => frame.type === 'grant.revoke'))
+      .toContainEqual(expect.objectContaining({ grantId: 'g-failed-turn' }))
+  })
+
+  it('drops stale browser authority when a new turn has no attachment', async () => {
+    const fixture = await makeFixture()
+    const { ctx, agent, connectionId, offer, grants } = fixture
+    const handle = offer(connectionId, 'session-a', TAB, 'g-stale-without-next-marker')
+    await proposeStep(ctx, agent, userMessage(`verify ${encodeMarker(handle)}`), 1)
+    expect(agent.ctx.tools.get('browser_observe', agent)).toBeDefined()
+
+    const second = await proposeStep(ctx, agent, userMessage('continue without a browser page'), 2)
+
+    expect(second.kind).toBe('enter')
+    expect(agent.ctx.tools.get('browser_observe', agent)).toBeUndefined()
+    expect(() => grants.resolve(GrantId('g-stale-without-next-marker'))).toThrow(/grant/)
+  })
+
+  it('drops stale browser authority before a later turn is rejected downstream', async () => {
+    const fixture = await makeFixture()
+    const { ctx, agent, connectionId, offer, grants, handler } = fixture
+    const handle = offer(connectionId, 'session-a', TAB, 'g-stale-before-reject')
+    await proposeStep(ctx, agent, userMessage(`verify ${encodeMarker(handle)}`), 1)
+    expect(agent.ctx.tools.get('browser_observe', agent)).toBeDefined()
+
+    const decision = await handler({
+      agent,
+      messages: [userMessage('blocked by downstream policy')],
+      turn: 2,
+      step: 1,
+      signal: new AbortController().signal,
+    }, async () => ({ kind: 'reject' }))
+
+    expect(decision.kind).toBe('reject')
+    expect(agent.ctx.tools.get('browser_observe', agent)).toBeUndefined()
+    expect(() => grants.resolve(GrantId('g-stale-before-reject'))).toThrow(/grant/)
+  })
+
+  it('rolls back tools and grants when turn tool registration fails partway', async () => {
+    const fixture = await makeFixture()
+    const { ctx, agent, connectionId, offer, grants, socket } = fixture
+    const firstHandle = offer(connectionId, 'session-a', TAB, 'g-definition-source')
+    await proposeStep(ctx, agent, userMessage(`verify ${encodeMarker(firstHandle)}`), 1)
+    const inspectDefinition = agent.ctx.tools.get('browser_inspect', agent)!
+    await fireTurnStopping(ctx, agent, 1)
+
+    // Force registration to succeed for browser_observe and then fail at
+    // browser_inspect. The bridge must remove the partial registration while
+    // preserving the unrelated pre-existing collision.
+    const releaseCollision = agent.ctx.tools.register(inspectDefinition)
+    const secondHandle = offer(connectionId, 'session-a', TAB2, 'g-registration-failed')
+    await expect(proposeStep(
+      ctx,
+      agent,
+      userMessage(`retry ${encodeMarker(secondHandle)}`),
+      2,
+    )).rejects.toThrow('tool "browser_inspect" is already registered in this scope')
+
+    expect(agent.ctx.tools.get('browser_observe', agent)).toBeUndefined()
+    expect(agent.ctx.tools.get('browser_inspect', agent)).toBe(inspectDefinition)
+    expect(() => grants.resolve(GrantId('g-registration-failed'))).toThrow(/grant/)
+    expect(socket.frames().filter(frame => frame.type === 'grant.revoke'))
+      .toContainEqual(expect.objectContaining({ grantId: 'g-registration-failed' }))
+    releaseCollision()
   })
 
   it('sanitizes the page summary URL and title', async () => {

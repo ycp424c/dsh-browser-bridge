@@ -11,6 +11,7 @@ import {
   createBrowserTool,
   resolvePageAlias,
   BROWSER_TOOL_OPERATIONS,
+  type BrowserToolsDeps,
   type PageAlias,
 } from './definitions.ts'
 
@@ -33,6 +34,8 @@ export interface RegisterTurnToolsDeps {
    * AgentLoop dependency surface (tools/systemPrompt) and never exposes it.
    */
   attachments: AttachmentStore
+  /** Exact model metadata resolver used to gate durable screenshot images. */
+  resolveModelInfo: BrowserToolsDeps['resolveModelInfo']
 }
 
 /**
@@ -51,6 +54,24 @@ export function registerTurnTools(
       resolvePage: page => resolvePageAlias(turn.pages, page),
       request: (grantId, operation, args, signal) => deps.coordinator.request(grantId, operation, args, signal),
       attachments: deps.attachments,
+      resolveModelInfo: deps.resolveModelInfo,
     }))
-  return tools.map(definition => agent.ctx.tools.register(definition))
+  const disposers: Array<() => void> = []
+  try {
+    for (const definition of tools) {
+      disposers.push(agent.ctx.tools.register(definition))
+    }
+    return disposers
+  } catch (error) {
+    // Registration is one turn-scoped transaction. Preserve the original
+    // failure while rolling back every definition installed before it.
+    for (const dispose of disposers.reverse()) {
+      try {
+        dispose()
+      } catch {
+        // Best-effort rollback must not mask the registration failure.
+      }
+    }
+    throw error
+  }
 }

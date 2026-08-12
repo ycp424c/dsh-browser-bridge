@@ -11,6 +11,7 @@ import { GrantStore } from './bridge/grant-store.ts'
 import { attachWebSocket, BridgeServer } from './bridge/server.ts'
 import { createPreStepHandler } from './pre-step.ts'
 import { registerTurnTools } from './tools/register.ts'
+import type { BrowserToolsDeps } from './tools/definitions.ts'
 import { ProviderRegistry } from './targets/provider-registry.ts'
 import { TargetCoordinator } from './targets/coordinator.ts'
 import { ViteTargetBroker } from './vite/broker.ts'
@@ -18,7 +19,7 @@ import { createViteRoutes } from './vite/routes.ts'
 
 export const name = '@dsh-external/dsh-browser-bridge'
 
-export const inject = ['httpServer', 'attachments']
+export const inject = ['httpServer', 'attachments', 'llm']
 
 /** Input config shape; defaults are applied by the `Config` schema. */
 export interface ConfigShape {
@@ -60,6 +61,7 @@ export const Config: z<ConfigShape> = z.object({
 
 export function apply(ctx: Context, config: ConfigShape): void {
   const resolved = Config(config)
+  const llm = ctx.get('llm') as { resolveModelInfo: BrowserToolsDeps['resolveModelInfo'] }
   const pairing = new PairingStore({ pairingTtlMs: resolved.pairingTtlMs })
   const grants = new GrantStore()
   const registry = new ProviderRegistry()
@@ -89,6 +91,7 @@ export function apply(ctx: Context, config: ConfigShape): void {
       // the plugin's own dependency surface and passed down explicitly, so
       // the agent scope (DSH 0810: tools/systemPrompt) never needs it.
       attachments: ctx.attachments,
+      resolveModelInfo: (provider, model, signal) => llm.resolveModelInfo(provider, model, signal),
     }),
   })
 

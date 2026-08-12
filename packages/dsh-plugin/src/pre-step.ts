@@ -137,6 +137,16 @@ export function createPreStepHandler(deps: PreStepHandlerDeps): PreStepHandler {
   }
 
   const handler: PreStepHandler = async (payload, next) => {
+    // Model/adapter failures end a DSH turn without dispatching
+    // `agent/turn-stopping` or aborting its signal. Treat the next observed
+    // turn boundary as the terminal fallback: stale tools must never remain
+    // visible, even when the new turn attaches no page or is rejected by a
+    // downstream pre-step policy.
+    const stale = active.get(payload.agent)
+    if (stale !== undefined && stale.turn !== payload.turn) {
+      cleanup(payload.agent, stale.turn)
+    }
+
     const decision = await next()
     if (decision.kind === 'reject') return decision
 
@@ -152,8 +162,7 @@ export function createPreStepHandler(deps: PreStepHandlerDeps): PreStepHandler {
     // Steering may add markers to the SAME turn: the new pages are appended
     // to the active turn's shared pages array so the already-registered tool
     // closures (which close over that exact array) can resolve page_2+.
-    const existing = active.get(payload.agent)
-    const current = existing !== undefined && existing.turn === turn ? existing : undefined
+    const current = active.get(payload.agent)
     const pages = current?.pages ?? []
     const summaries = new Map<string, string>()
     const aliasByGrantId = new Map(pages.map(page => [page.grantId, page.alias]))
@@ -196,9 +205,21 @@ export function createPreStepHandler(deps: PreStepHandlerDeps): PreStepHandler {
       try {
         turnState.disposers = deps.registerTurnTools(payload.agent, turnState)
       } catch (error) {
-        // Registration failed: reject the step rather than entering a turn
-        // whose tools are missing.
-        for (const dispose of turnState.disposers) dispose()
+        // Registration failed: roll back tools and the already-consumed
+        // grants rather than entering a partial turn. The production
+        // registrar is transactional; this loop also protects custom deps.
+        for (const dispose of turnState.disposers) {
+          try {
+            dispose()
+          } catch {
+            // Keep unwinding the failed turn.
+          }
+        }
+        try {
+          deps.coordinator.revokeTurn(sessionId, turn)
+        } catch {
+          // The target may already be gone; the store still drops records.
+        }
         active.delete(payload.agent)
         throw error
       }
