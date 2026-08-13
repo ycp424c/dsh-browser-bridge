@@ -1,5 +1,5 @@
 /** Shared fixture: exact model metadata for screenshot capability gates. */
-import { Context, Service } from 'cordis'
+import { Context, Service } from '@deepseek-ai/cordis'
 
 export class FakeLlm extends Service {
   constructor(ctx: Context) {

@@ -7,17 +7,17 @@
 import type {
   CandidateRequest,
   ClientSessionContext,
+  InputTriggerCandidate,
+  InputTriggerPick,
+  InputTriggerSource,
   PickOutcome,
-  SlashCandidate,
-  SlashPick,
-  SlashSource,
-} from '@deepseek-ai/dsh-client-ui-slash/src/types.ts'
+} from '@deepseek-ai/dsh-client-ui-input-trigger/src/types.ts'
 import { encodeMarker, type BrowserTargetDescriptor } from '@dsh-external/dsh-browser-bridge-protocol'
 import type { ViteTargetApi } from './vite-api.ts'
 import { ReferenceStore } from './reference-store.ts'
 
 interface HotCandidate {
-  candidate: SlashCandidate
+  candidate: InputTriggerCandidate
   target: BrowserTargetDescriptor
 }
 
@@ -29,13 +29,13 @@ function hostOf(url: string): string {
   }
 }
 
-export function createViteSource(api: ViteTargetApi, store: ReferenceStore<BrowserTargetDescriptor>): SlashSource {
+export function createViteSource(api: ViteTargetApi, store: ReferenceStore<BrowserTargetDescriptor>): InputTriggerSource {
   let hot = new Map<string, HotCandidate>()
   return {
     trigger: '@',
     name: 'vite-pages',
     order: -19,
-    candidates: async (session: ClientSessionContext, req: CandidateRequest): Promise<SlashCandidate[]> => {
+    candidates: async (session: ClientSessionContext, req: CandidateRequest): Promise<InputTriggerCandidate[]> => {
       const targets = await api.listTargets(req.signal)
       const seen = new Map<string, number>()
       const next: HotCandidate[] = []
@@ -51,7 +51,7 @@ export function createViteSource(api: ViteTargetApi, store: ReferenceStore<Brows
       hot = new Map(next.map(entry => [entry.candidate.name!, entry]))
       return next.map(entry => entry.candidate)
     },
-    onPick: (pick: SlashPick): PickOutcome => {
+    onPick: (pick: InputTriggerPick): PickOutcome => {
       const entry = hot.get(pick.candidate.name ?? '')
       if (entry === undefined) return undefined
       const record = store.allocate(pick.session.sessionId, entry.target, entry.target.title)

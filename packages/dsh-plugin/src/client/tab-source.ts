@@ -6,17 +6,17 @@
 import type {
   CandidateRequest,
   ClientSessionContext,
+  InputTriggerCandidate,
+  InputTriggerPick,
+  InputTriggerSource,
   PickOutcome,
-  SlashCandidate,
-  SlashPick,
-  SlashSource,
-} from '@deepseek-ai/dsh-client-ui-slash/src/types.ts'
+} from '@deepseek-ai/dsh-client-ui-input-trigger/src/types.ts'
 import { encodeMarker, type TabDescriptor } from '@dsh-external/dsh-browser-bridge-protocol'
 import type { ExtensionChannel } from './extension-channel.ts'
 import { ReferenceStore } from './reference-store.ts'
 
 interface HotCandidate {
-  candidate: SlashCandidate
+  candidate: InputTriggerCandidate
   tab: TabDescriptor
 }
 
@@ -28,13 +28,13 @@ function hostOf(url: string): string {
   }
 }
 
-export function createTabSource(channel: ExtensionChannel, store: ReferenceStore<TabDescriptor>): SlashSource {
+export function createTabSource(channel: ExtensionChannel, store: ReferenceStore<TabDescriptor>): InputTriggerSource {
   let hot = new Map<string, HotCandidate>()
   return {
     trigger: '@',
     name: 'browser-tabs',
     order: -20,
-    candidates: async (session: ClientSessionContext, req: CandidateRequest): Promise<SlashCandidate[]> => {
+    candidates: async (session: ClientSessionContext, req: CandidateRequest): Promise<InputTriggerCandidate[]> => {
       const tabs = await channel.request<TabDescriptor[]>('tabs.list', {}, req.signal)
       const seen = new Map<string, number>()
       const next: HotCandidate[] = []
@@ -49,7 +49,7 @@ export function createTabSource(channel: ExtensionChannel, store: ReferenceStore
       hot = new Map(next.map(entry => [entry.candidate.name!, entry]))
       return next.map(entry => entry.candidate)
     },
-    onPick: (pick: SlashPick): PickOutcome => {
+    onPick: (pick: InputTriggerPick): PickOutcome => {
       const entry = hot.get(pick.candidate.name ?? '')
       if (entry === undefined) return undefined
       const record = store.allocate(pick.session.sessionId, entry.tab, entry.tab.title)

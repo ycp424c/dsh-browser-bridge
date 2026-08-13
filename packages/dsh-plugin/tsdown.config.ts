@@ -24,11 +24,11 @@ function dshSourceResolver(): TsdownPlugin {
   return {
     name: 'dsh-browser-bridge-dsh-source',
     resolveId(source) {
-      // Exact keys cover the checkout's packages AND its vendored cordis,
-      // cosmokit, schemastery, and @cordisjs/* copies.
+      // Exact keys cover the checkout's packages and its vendored scoped
+      // cordis, cosmokit, schemastery, and plugin packages.
       const target = paths[source]?.[0]
       if (target === undefined) return null
-      if (source === 'cordis') console.log('[resolver] cordis ->', target)
+      if (source === '@deepseek-ai/cordis') console.log('[resolver] @deepseek-ai/cordis ->', target)
       return resolve(import.meta.dirname, '../../.dsh', target)
     },
   }
@@ -68,24 +68,17 @@ export default [
     outDir: 'lib',
     outExtension: () => ({ js: '.js', dts: '.d.ts' }),
     plugins: [dshSourceResolver()],
-    // Builtin alias runs before the dependency plugins: vendored cordis is
-    // inlined so the bundle runs against a source checkout AND a built
-    // installation.
-    alias: {
-      cordis: resolve(import.meta.dirname, '../../.dsh/source/current/vendor/cordis/src/index.ts'),
-    },
     // cordis/schemastery/ws come from the host DSH installation; the DSH
     // runtime packages are inlined so the plugin works against a source
     // checkout AND a built installation.
     deps: {
-      neverBundle: ['schemastery', 'ws'],
-      // protocol, cordis, and the DSH runtime packages are inlined (they are
+      neverBundle: ['@deepseek-ai/schemastery', 'ws'],
+      // protocol and the DSH runtime packages are inlined (they are
       // not declared production dependencies), so the automatic
       // externalization never shadows the alwaysBundle list.
       alwaysBundle: (id) =>
-        id === 'cordis'
-        || id === '@dsh-external/dsh-browser-bridge-protocol'
-        || id.startsWith('@deepseek-ai/'),
+        id === '@dsh-external/dsh-browser-bridge-protocol'
+        || (id.startsWith('@deepseek-ai/') && id !== '@deepseek-ai/schemastery'),
     },
   }),
   // Browser half: DSH module-loader factory artifact at lib/client.js.
@@ -103,7 +96,7 @@ export default [
       neverBundle: [
         'react',
         'react/jsx-runtime',
-        'cordis',
+        '@deepseek-ai/cordis',
         '@deepseek-ai/dsh-client-ui-slots',
         '@deepseek-ai/dsh-client-runtime/client',
       ],

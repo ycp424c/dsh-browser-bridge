@@ -20,7 +20,7 @@ import { createViteTargetApi } from './vite-api.ts'
 import { createViteSource } from './vite-source.ts'
 import { ViteParentChannel } from './vite-parent-channel.ts'
 
-export const inject = ['slash', 'sessions', 'slots']
+export const inject = ['inputTriggers', 'sessions', 'slots']
 
 export function apply(ctx: ClientContext): void {
   const tabStore = new ReferenceStore<TabDescriptor>()
@@ -54,7 +54,7 @@ export function apply(ctx: ClientContext): void {
   ctx.effect(() => {
     // Vite pages are discovered in every mode (standalone DSH Web, the
     // extension side panel, and the embedded Vite panel).
-    const offViteSource = ctx.slash.registerSource(createViteSource(viteApi, viteStore))
+    const offViteSource = ctx.inputTriggers.registerSource(createViteSource(viteApi, viteStore))
 
     // Vite parent channel: the page hosting this DSH Web iframe may post
     // one init message with a transferred port; the current-page button is
@@ -110,7 +110,7 @@ export function apply(ctx: ClientContext): void {
           console.warn('[dsh-browser-bridge] re-pairing failed', error)
         })
       })
-      const offSource = ctx.slash.registerSource(createTabSource(channel, tabStore))
+      const offSource = ctx.inputTriggers.registerSource(createTabSource(channel, tabStore))
       const offSlot = ctx.inject(['slots', 'sessions'], (scope: ClientContext) => {
         const sessions = scope.sessions
         // The official `conversation.input.dock` strip above the input card

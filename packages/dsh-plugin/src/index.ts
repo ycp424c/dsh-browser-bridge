@@ -3,8 +3,8 @@
  * Owns the pairing endpoint, the authenticated WebSocket bridge, prompt
  * marker consumption, and turn-scoped browser tools.
  */
-import type { Context } from 'cordis'
-import z from 'schemastery'
+import type { Context } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 import { WebSocketServer } from 'ws'
 import { PairingStore, EXTENSION_ORIGIN_PATTERN } from './bridge/pairing-store.ts'
 import { GrantStore } from './bridge/grant-store.ts'
@@ -19,7 +19,7 @@ import { createViteRoutes } from './vite/routes.ts'
 
 export const name = '@dsh-external/dsh-browser-bridge'
 
-export const inject = ['httpServer', 'attachments', 'llm']
+export const inject = ['webServer', 'attachments', 'llm']
 
 /** Input config shape; defaults are applied by the `Config` schema. */
 export interface ConfigShape {
@@ -96,7 +96,7 @@ export function apply(ctx: Context, config: ConfigShape): void {
   })
 
   ctx.effect(() => {
-    const offPair = ctx.httpServer.register({
+    const offPair = ctx.webServer.register({
       kind: 'exact',
       path: '/dsh-browser-bridge/pair',
       handler: async (req, res) => {
@@ -126,7 +126,7 @@ export function apply(ctx: Context, config: ConfigShape): void {
       },
     })
 
-    const offWs = ctx.httpServer.registerUpgrade({
+    const offWs = ctx.webServer.registerUpgrade({
       path: '/dsh-browser-bridge/ws',
       handler: (req, socket, head) => {
         const origin = req.headers.origin ?? ''
@@ -141,7 +141,7 @@ export function apply(ctx: Context, config: ConfigShape): void {
       broker,
       coordinator,
       grantTtlMs: resolved.grantTtlMs,
-    }).register(ctx.httpServer)
+    }).register(ctx.webServer)
 
     const offPreStep = ctx.on('agent/pre-step', (payload, next) => preStep(payload, next))
     const offTurnStopping = ctx.on('agent/turn-stopping', ({ agent, turn }) => {

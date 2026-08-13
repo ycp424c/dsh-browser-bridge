@@ -3,9 +3,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
-import { Context } from 'cordis'
-import Loader from '@cordisjs/plugin-loader'
-import Include from '@cordisjs/plugin-include'
+import { Context } from '@deepseek-ai/cordis'
+import Loader from '@deepseek-ai/cordis-plugin-loader'
+import Include from '@deepseek-ai/cordis-plugin-include'
 import { agentEvents, Inbox, type Agent, type PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { CallId, createUserMessage } from '@deepseek-ai/dsh-llm'
 import { Session, type UserMessage } from '@deepseek-ai/dsh-session'
@@ -290,14 +290,14 @@ async function makeComposition(): Promise<Composition> {
         insert: [{
           id: 'dsh-browser-bridge',
           name: '@dsh-external/dsh-browser-bridge',
-          inject: ['httpServer', 'attachments', 'llm'],
+          inject: ['webServer', 'attachments', 'llm'],
         }],
       }],
     },
   })
   await ctx.loader.await()
   const agent = await stubAgent(ctx, 'session-composition')
-  const port = ctx.httpServer.port
+  const port = ctx.webServer.port
   const baseUrl = `http://127.0.0.1:${port}`
   const wsUrl = `ws://127.0.0.1:${port}/dsh-browser-bridge/ws`
   return {

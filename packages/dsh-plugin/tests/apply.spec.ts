@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Context, Service } from 'cordis'
+import { Context, Service } from '@deepseek-ai/cordis'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Duplex } from 'node:stream'
 import type { WebRoute, WebUpgradeRoute } from '@deepseek-ai/dsh-host-webserver'
@@ -7,12 +7,12 @@ import { apply, Config, inject, name } from '../src/index.ts'
 import { FakeAttachments } from './fake-attachments.ts'
 import { FakeLlm } from './fake-llm.ts'
 
-class FakeHttpServer extends Service {
+class FakeWebServer extends Service {
   readonly routes = new Map<string, WebRoute>()
   readonly upgrades = new Map<string, WebUpgradeRoute>()
 
   constructor(ctx: Context) {
-    super(ctx, 'httpServer')
+    super(ctx, 'webServer')
   }
 
   register(route: WebRoute): () => void {
@@ -62,7 +62,7 @@ function jsonReq(body: unknown): IncomingMessage {
 }
 
 async function readPairing(ctx: Context, origin: string): Promise<{ status: number; body: { nonce?: string } }> {
-  const server = ctx.get('httpServer') as unknown as FakeHttpServer
+  const server = ctx.get('webServer') as unknown as FakeWebServer
   const route = server.routes.get('/dsh-browser-bridge/pair')
   expect(route).toBeDefined()
   const res = new FakeRes()
@@ -70,19 +70,23 @@ async function readPairing(ctx: Context, origin: string): Promise<{ status: numb
   return { status: res.status, body: JSON.parse(res.body === '' ? '{}' : res.body) as { nonce?: string } }
 }
 
-async function mount(): Promise<{ ctx: Context; server: FakeHttpServer }> {
+async function mount(): Promise<{ ctx: Context; server: FakeWebServer }> {
   const ctx = new Context()
-  await ctx.plugin(FakeHttpServer)
+  await ctx.plugin(FakeWebServer)
   // The plugin's inject list requires routing, attachments, and model metadata.
   await ctx.plugin(FakeAttachments)
   await ctx.plugin(FakeLlm)
   // The loader assembles { apply, inject, Config } from the module exports.
   await ctx.plugin({ apply, inject, Config, name }, {})
-  const server = ctx.get('httpServer') as unknown as FakeHttpServer
+  const server = ctx.get('webServer') as unknown as FakeWebServer
   return { ctx, server }
 }
 
 describe('browser bridge plugin apply', () => {
+  it('injects the current DSH web server service', () => {
+    expect(inject).toEqual(['webServer', 'attachments', 'llm'])
+  })
+
   it('registers the pairing and WebSocket upgrade routes', async () => {
     const { server } = await mount()
     expect(server.routes.has('/dsh-browser-bridge/pair')).toBe(true)

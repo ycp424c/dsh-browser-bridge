@@ -7,7 +7,7 @@
  * store is passed to `registerTurnTools` explicitly; the agent-scoped tool
  * registry never resolves it.
  */
-import { Context, Service } from 'cordis'
+import { Context, Service } from '@deepseek-ai/cordis'
 import {
   AttachmentId,
   type ImageAttachmentLimits,

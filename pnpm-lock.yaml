@@ -111,17 +111,17 @@ importers:
 
   packages/dsh-plugin:
     dependencies:
-      schemastery:
-        specifier: ^3.18.0
-        version: 3.18.0
       ws:
         specifier: ^8.21.0
         version: 8.21.3
     devDependencies:
-      '@cordisjs/plugin-include':
+      '@deepseek-ai/cordis':
+        specifier: link:../../.dsh/source/current/vendor/cordis
+        version: link:../../.dsh/source/current/vendor/cordis
+      '@deepseek-ai/cordis-plugin-include':
         specifier: link:../../.dsh/source/current/vendor/include
         version: link:../../.dsh/source/current/vendor/include
-      '@cordisjs/plugin-loader':
+      '@deepseek-ai/cordis-plugin-loader':
         specifier: link:../../.dsh/source/current/vendor/loader
         version: link:../../.dsh/source/current/vendor/loader
       '@deepseek-ai/dsh-agent':
@@ -139,9 +139,9 @@ importers:
       '@deepseek-ai/dsh-client-ui-conversation':
         specifier: link:../../.dsh/source/current/packages/client/ui-conversation
         version: link:../../.dsh/source/current/packages/client/ui-conversation
-      '@deepseek-ai/dsh-client-ui-slash':
-        specifier: link:../../.dsh/source/current/packages/client/ui-slash
-        version: link:../../.dsh/source/current/packages/client/ui-slash
+      '@deepseek-ai/dsh-client-ui-input-trigger':
+        specifier: link:../../.dsh/source/current/packages/client/ui-input-trigger
+        version: link:../../.dsh/source/current/packages/client/ui-input-trigger
       '@deepseek-ai/dsh-client-ui-slots':
         specifier: link:../../.dsh/source/current/packages/client/ui-slots
         version: link:../../.dsh/source/current/packages/client/ui-slots
@@ -163,6 +163,9 @@ importers:
       '@deepseek-ai/dsh-tools':
         specifier: link:../../.dsh/source/current/packages/core/tools
         version: link:../../.dsh/source/current/packages/core/tools
+      '@deepseek-ai/schemastery':
+        specifier: link:../../.dsh/source/current/vendor/schemastery
+        version: link:../../.dsh/source/current/vendor/schemastery
       '@dsh-external/dsh-browser-bridge-protocol':
         specifier: workspace:^
         version: link:../protocol
@@ -178,9 +181,6 @@ importers:
       '@types/ws':
         specifier: ^8.18.1
         version: 8.18.1
-      cordis:
-        specifier: link:../../.dsh/source/current/vendor/cordis
-        version: link:../../.dsh/source/current/vendor/cordis
       jsdom:
         specifier: ^26.1.0
         version: 26.1.0
@@ -923,9 +923,6 @@ packages:
   convert-source-map@2.0.0:
     resolution: {integrity: sha512-Kvp459HrV2FEJ1CAsi1Ku+MY3kasH19TFykTz2xWmMeq6bk2NU3XXvfJ+Q61m0xktWwt+1HSYf3JZsTms3aRJg==}
 
-  cosmokit@1.8.1:
-    resolution: {integrity: sha512-PDBv4l90xZKrUsZ0vtoycgZpO/j4iFsqJXrAxsyBDsnQRI7ZMJXIjgDJsKNjd5L8jnVnnlrDCdhkFbTncgCVjQ==}
-
   css-select@7.0.0:
     resolution: {integrity: sha512-snmjEVXy+1LnwXdxhYvTMj1d9tOh4HxkA1YmoayVBeeyR2C14Pum7fcxJIm4SswYspVy866eYNwlH6xC3/VH5g==}
     engines: {node: '>=20.19.0'}
@@ -1575,9 +1572,6 @@ packages:
 
   scheduler@0.27.0:
     resolution: {integrity: sha512-eNv+WrVbKu1f3vbYJT/xtiF5syA5HPIMtf9IgY/nKg0sWqzAUEvqY/xm7OcZc/qafLx/iO9FgOmeSAp4v5ti/Q==}
-
-  schemastery@3.18.0:
-    resolution: {integrity: sha512-Jw2uxjoyyqc/yeurmChUEc/jbi8GsrdXV/KmqRUDZXJAXAmrJiPsz8vKa17l/VckyzljHZ9oGaul443CQiXxtA==}
 
   scule@1.3.0:
     resolution: {integrity: sha512-6FtHJEvt+pVMIB9IBY+IcCJ6Z5f1iQnytgyfKMhDKgmzYG+TeH/wx1y3l27rshSbLiSanrR9ffZDrEsmjlQF2g==}
@@ -2527,8 +2521,6 @@ snapshots:
 
   convert-source-map@2.0.0: {}
 
-  cosmokit@1.8.1: {}
-
   css-select@7.0.0:
     dependencies:
       boolbase: 2.0.0
@@ -3085,11 +3077,6 @@ snapshots:
       loose-envify: 1.4.0
 
   scheduler@0.27.0: {}
-
-  schemastery@3.18.0:
-    dependencies:
-      '@standard-schema/spec': 1.1.0
-      cosmokit: 1.8.1
 
   scule@1.3.0: {}
 

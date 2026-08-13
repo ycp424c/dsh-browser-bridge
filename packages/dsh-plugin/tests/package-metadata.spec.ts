@@ -20,7 +20,7 @@ describe('DSH plugin package metadata', () => {
     expect(manifest.dsh?.client).toEqual({
       inject: [
         '@deepseek-ai/dsh-client-runtime',
-        '@deepseek-ai/dsh-client-ui-slash',
+        '@deepseek-ai/dsh-client-ui-input-trigger',
         '@deepseek-ai/dsh-client-ui-conversation',
         '@deepseek-ai/dsh-client-ui-slots',
       ],

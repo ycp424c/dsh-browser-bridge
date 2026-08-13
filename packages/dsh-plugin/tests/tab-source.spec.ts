@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { SlashCandidate, SlashPick, TokenSpan } from '@deepseek-ai/dsh-client-ui-slash/src/types.ts'
+import type { InputTriggerCandidate, InputTriggerPick, TokenSpan } from '@deepseek-ai/dsh-client-ui-input-trigger/src/types.ts'
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type { TabDescriptor } from '@dsh-external/dsh-browser-bridge-protocol'
 import { ReferenceStore } from '../src/client/reference-store.ts'
@@ -31,7 +31,7 @@ class FakeChannel {
   }
 }
 
-function pick(candidate: SlashCandidate, span: TokenSpan = { start: 1, end: 1, draftRev: 0 }): SlashPick {
+function pick(candidate: InputTriggerCandidate, span: TokenSpan = { start: 1, end: 1, draftRev: 0 }): InputTriggerPick {
   return { candidate, session: { sessionId: s('s1') }, position: 'leading', via: 'menu', span }
 }
 
