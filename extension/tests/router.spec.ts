@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   GrantHandle, GrantId, PROTOCOL_VERSION, RequestId, type BridgeFrame, type GrantAcceptedFrame,
   type GrantPutFrame, type TabDescriptor,
-} from '@dsh-external/dsh-browser-bridge-protocol'
+} from '@ycp424c/dsh-browser-bridge-protocol'
 import { BridgeRouter, isLoopbackWsUrl, type PanelReply, type ToolExecutor } from '../src/bridge/router.ts'
 import type { BridgeClient, BridgeClientState } from '../src/bridge/client.ts'
 import type { TabCatalog } from '../src/tabs/catalog.ts'

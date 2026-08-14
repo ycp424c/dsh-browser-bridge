@@ -1,5 +1,5 @@
 {
-  "name": "@dsh-external/dsh-browser-bridge",
+  "name": "@ycp424c/dsh-browser-bridge",
   "description": "External DSH plugin (host + client) for the browser bridge",
   "version": "0.1.0",
   "type": "module",
@@ -82,12 +82,12 @@
     "typescript": "^6.0.3",
     "vite-tsconfig-paths": "^5.1.4",
     "vitest": "^4.1.10",
-    "@dsh-external/dsh-browser-bridge-protocol": "workspace:^"
+    "@ycp424c/dsh-browser-bridge-protocol": "workspace:^"
   },
   "license": "BSD-3-Clause",
   "repository": {
     "type": "git",
-    "url": "https://github.com/dsh-external/dsh-browser-bridge.git"
+    "url": "https://github.com/ycp424c/dsh-browser-bridge.git"
   },
   "engines": {
     "node": "^22.19.0 || >=24.0.0"

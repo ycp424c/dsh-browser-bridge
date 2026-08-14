@@ -190,7 +190,7 @@ console.log(`${link} -> ${resolve(source)}`)
 
 - [ ] **Step 4: Add package manifests and install**
 
-Use `@dsh-external/dsh-browser-bridge-protocol`, `@dsh-external/dsh-browser-bridge`, and `@dsh-external/dsh-browser-bridge-extension` as package names. The protocol depends on `zod@^4.4.3`; the host plugin depends on the protocol workspace, `schemastery@^3.18.0`, and `ws@^8.21.0`; its DSH development dependencies use `link:../../.dsh/source/current/...`. The extension depends on the protocol workspace, WXT, React 19, Tailwind 4, and the shadcn runtime packages.
+Use `@ycp424c/dsh-browser-bridge-protocol`, `@ycp424c/dsh-browser-bridge`, and `@ycp424c/dsh-browser-bridge-extension` as package names. The protocol depends on `zod@^4.4.3`; the host plugin depends on the protocol workspace, `schemastery@^3.18.0`, and `ws@^8.21.0`; its DSH development dependencies use `link:../../.dsh/source/current/...`. The extension depends on the protocol workspace, WXT, React 19, Tailwind 4, and the shadcn runtime packages.
 
 Run:
 
@@ -253,7 +253,7 @@ describe('prompt markers', () => {
 Run:
 
 ```bash
-pnpm --filter @dsh-external/dsh-browser-bridge-protocol test
+pnpm --filter @ycp424c/dsh-browser-bridge-protocol test
 ```
 
 Expected: FAIL because `src/index.ts` does not exist.
@@ -297,9 +297,9 @@ Use strict Zod discriminated unions for `hello`, `hello.ok`, `ping`, `pong`, `gr
 - [ ] **Step 4: Run protocol tests, typecheck, and build**
 
 ```bash
-pnpm --filter @dsh-external/dsh-browser-bridge-protocol test
-pnpm --filter @dsh-external/dsh-browser-bridge-protocol typecheck
-pnpm --filter @dsh-external/dsh-browser-bridge-protocol build
+pnpm --filter @ycp424c/dsh-browser-bridge-protocol test
+pnpm --filter @ycp424c/dsh-browser-bridge-protocol typecheck
+pnpm --filter @ycp424c/dsh-browser-bridge-protocol build
 ```
 
 Expected: all commands pass and `packages/protocol/lib/index.js` exists.
@@ -337,7 +337,7 @@ expect(() => grants.consume(record.handle, { connectionId, sessionId: 'session-b
 - [ ] **Step 2: Run tests and confirm the stores are absent**
 
 ```bash
-pnpm --filter @dsh-external/dsh-browser-bridge test -- pairing-store grant-store bridge-server
+pnpm --filter @ycp424c/dsh-browser-bridge test -- pairing-store grant-store bridge-server
 ```
 
 Expected: FAIL with unresolved bridge modules.
@@ -380,7 +380,7 @@ Do not retry inside the first carrier implementation. Task 12 adds one bounded r
 - [ ] **Step 5: Run focused tests and commit**
 
 ```bash
-pnpm --filter @dsh-external/dsh-browser-bridge test -- pairing-store grant-store bridge-server
+pnpm --filter @ycp424c/dsh-browser-bridge test -- pairing-store grant-store bridge-server
 git add packages/dsh-plugin/src/bridge packages/dsh-plugin/tests
 git commit -m "feat: add authenticated browser bridge carrier"
 ```
@@ -425,7 +425,7 @@ expect(socket.sent[0]).toMatchObject({ type: 'hello', pairingNonce: 'n'.repeat(3
 - [ ] **Step 2: Run focused tests and see missing modules**
 
 ```bash
-pnpm --filter @dsh-external/dsh-browser-bridge-extension test -- settings bridge-client
+pnpm --filter @ycp424c/dsh-browser-bridge-extension test -- settings bridge-client
 ```
 
 Expected: FAIL because settings and bridge client modules do not exist.
@@ -487,9 +487,9 @@ export default defineBackground(() => {
 - [ ] **Step 6: Verify shell tests, typecheck, and build**
 
 ```bash
-pnpm --filter @dsh-external/dsh-browser-bridge-extension test -- settings bridge-client
-pnpm --filter @dsh-external/dsh-browser-bridge-extension typecheck
-pnpm --filter @dsh-external/dsh-browser-bridge-extension build
+pnpm --filter @ycp424c/dsh-browser-bridge-extension test -- settings bridge-client
+pnpm --filter @ycp424c/dsh-browser-bridge-extension typecheck
+pnpm --filter @ycp424c/dsh-browser-bridge-extension build
 ```
 
 Expected: all pass and `extension/output/chrome-mv3/manifest.json` contains `debugger`, `tabs`, `storage`, and `sidePanel` permissions.
@@ -531,7 +531,7 @@ expect(() => vault.resolve(grant.grantId)).toThrow(/grant_expired/)
 - [ ] **Step 2: Run tests and observe missing catalog/vault**
 
 ```bash
-pnpm --filter @dsh-external/dsh-browser-bridge-extension test -- tab-catalog grant-vault router
+pnpm --filter @ycp424c/dsh-browser-bridge-extension test -- tab-catalog grant-vault router
 ```
 
 Expected: FAIL with unresolved modules.
@@ -557,8 +557,8 @@ For `grant.create`, re-read the tab by exact ID once, reject a closed tab or cha
 - [ ] **Step 5: Verify and commit**
 
 ```bash
-pnpm --filter @dsh-external/dsh-browser-bridge-extension test -- tab-catalog grant-vault router
-pnpm --filter @dsh-external/dsh-browser-bridge-extension typecheck
+pnpm --filter @ycp424c/dsh-browser-bridge-extension test -- tab-catalog grant-vault router
+pnpm --filter @ycp424c/dsh-browser-bridge-extension typecheck
 git add extension/src extension/tests extension/entrypoints/background.ts
 git commit -m "feat: issue prompt-scoped tab grants"
 ```
@@ -596,7 +596,7 @@ Render `CurrentTabButton` with `input.draft = 'verify this'` and assert its clic
 - [ ] **Step 2: Run focused tests and see missing client modules**
 
 ```bash
-pnpm --filter @dsh-external/dsh-browser-bridge test -- client-channel tab-source current-tab-button
+pnpm --filter @ycp424c/dsh-browser-bridge test -- client-channel tab-source current-tab-button
 ```
 
 Expected: FAIL with unresolved client modules.
@@ -636,9 +636,9 @@ Configure tsdown to emit `lib/index.js` for Node and a DSH module-loader factory
 Run:
 
 ```bash
-pnpm --filter @dsh-external/dsh-browser-bridge test -- client-channel tab-source current-tab-button
-pnpm --filter @dsh-external/dsh-browser-bridge typecheck
-pnpm --filter @dsh-external/dsh-browser-bridge build
+pnpm --filter @ycp424c/dsh-browser-bridge test -- client-channel tab-source current-tab-button
+pnpm --filter @ycp424c/dsh-browser-bridge typecheck
+pnpm --filter @ycp424c/dsh-browser-bridge build
 ```
 
 - [ ] **Step 7: Commit composer integration**
@@ -680,7 +680,7 @@ Also prove an unknown/expired/mismatched handle rejects the step, duplicate refe
 - [ ] **Step 2: Run tests and observe missing pre-step/tools**
 
 ```bash
-pnpm --filter @dsh-external/dsh-browser-bridge test -- pre-step tools apply
+pnpm --filter @ycp424c/dsh-browser-bridge test -- pre-step tools apply
 ```
 
 Expected: FAIL with missing modules.
@@ -716,14 +716,14 @@ Register each tool through `agent.ctx.tools.register`, store exact disposers in 
 
 `apply(ctx, config)` creates the stores/server, registers exact POST `/dsh-browser-bridge/pair` and upgrade `/dsh-browser-bridge/ws` routes through `ctx.httpServer`, registers pre-step/turn-stopping listeners, and owns all disposers with `ctx.effect`. The pairing route accepts only JSON with a syntactically valid `chrome-extension://<id>` origin, returns `Cache-Control: no-store`, and never reflects the nonce into a URL. Config fields are `pairingTtlMs`, `grantTtlMs`, `toolTimeoutMs`, `consoleBufferSize`, `networkBufferSize`, and `rawCdpEnabled`; validate at load and default raw CDP to false.
 
-Add a standard `dsh.plugin.json`, a `dshClient` declaration, and a one-row profile bundle patch for `@dsh-external/dsh-browser-bridge`.
+Add a standard `dsh.plugin.json`, a `dshClient` declaration, and a one-row profile bundle patch for `@ycp424c/dsh-browser-bridge`.
 
 - [ ] **Step 6: Verify scoped behavior and commit**
 
 ```bash
-pnpm --filter @dsh-external/dsh-browser-bridge test -- pre-step tools apply
-pnpm --filter @dsh-external/dsh-browser-bridge typecheck
-pnpm --filter @dsh-external/dsh-browser-bridge build
+pnpm --filter @ycp424c/dsh-browser-bridge test -- pre-step tools apply
+pnpm --filter @ycp424c/dsh-browser-bridge typecheck
+pnpm --filter @ycp424c/dsh-browser-bridge build
 git add packages/dsh-plugin
 git commit -m "feat: scope browser tools to attached prompts"
 ```
@@ -759,7 +759,7 @@ expect(debuggerApi.detach).toHaveBeenCalledWith({ tabId: 7 })
 - [ ] **Step 2: Run tests and confirm no CDP manager exists**
 
 ```bash
-pnpm --filter @dsh-external/dsh-browser-bridge-extension test -- node-registry session-manager
+pnpm --filter @ycp424c/dsh-browser-bridge-extension test -- node-registry session-manager
 ```
 
 Expected: FAIL with unresolved CDP modules.
@@ -781,8 +781,8 @@ The router binds accepted grants without attaching. `grant.revoke`, connection l
 Run:
 
 ```bash
-pnpm --filter @dsh-external/dsh-browser-bridge-extension test -- node-registry session-manager
-pnpm --filter @dsh-external/dsh-browser-bridge-extension typecheck
+pnpm --filter @ycp424c/dsh-browser-bridge-extension test -- node-registry session-manager
+pnpm --filter @ycp424c/dsh-browser-bridge-extension typecheck
 git add extension/src/cdp extension/src/bridge/router.ts extension/tests
 git commit -m "feat: manage prompt-bound CDP sessions"
 ```
@@ -815,7 +815,7 @@ expect(inspected).toMatchObject({
 - [ ] **Step 2: Run focused tests and see missing operations**
 
 ```bash
-pnpm --filter @dsh-external/dsh-browser-bridge-extension test -- observe inspect
+pnpm --filter @ycp424c/dsh-browser-bridge-extension test -- observe inspect
 ```
 
 Expected: FAIL with unresolved observe/inspect modules.
@@ -843,8 +843,8 @@ Resolve either a current-generation ref or a selector under the main document. U
 - [ ] **Step 5: Route, verify, and commit**
 
 ```bash
-pnpm --filter @dsh-external/dsh-browser-bridge-extension test -- observe inspect
-pnpm --filter @dsh-external/dsh-browser-bridge-extension typecheck
+pnpm --filter @ycp424c/dsh-browser-bridge-extension test -- observe inspect
+pnpm --filter @ycp424c/dsh-browser-bridge-extension typecheck
 git add extension/src/cdp extension/src/bridge/router.ts extension/tests
 git commit -m "feat: observe and inspect attached pages"
 ```
@@ -875,7 +875,7 @@ await expect(act.click(session, ref)).rejects.toMatchObject({ code: 'navigation_
 - [ ] **Step 2: Run focused tests and observe missing operations**
 
 ```bash
-pnpm --filter @dsh-external/dsh-browser-bridge-extension test -- act navigate wait
+pnpm --filter @ycp424c/dsh-browser-bridge-extension test -- act navigate wait
 ```
 
 Expected: FAIL with unresolved operation modules.
@@ -906,8 +906,8 @@ Poll at 100 ms, cap timeout at the plugin-configured tool timeout, observe abort
 - [ ] **Step 5: Route, verify, and commit**
 
 ```bash
-pnpm --filter @dsh-external/dsh-browser-bridge-extension test -- act navigate wait
-pnpm --filter @dsh-external/dsh-browser-bridge-extension typecheck
+pnpm --filter @ycp424c/dsh-browser-bridge-extension test -- act navigate wait
+pnpm --filter @ycp424c/dsh-browser-bridge-extension typecheck
 git add extension/src/cdp extension/src/bridge/router.ts extension/tests
 git commit -m "feat: interact with attached pages over CDP"
 ```
@@ -935,7 +935,7 @@ expect(JSON.stringify(networkEntries(session))).not.toMatch(/authorization|cooki
 - [ ] **Step 2: Run focused tests and see missing capture logic**
 
 ```bash
-pnpm --filter @dsh-external/dsh-browser-bridge-extension test -- capture console-network
+pnpm --filter @ycp424c/dsh-browser-bridge-extension test -- capture console-network
 ```
 
 Expected: FAIL with unresolved capture module.
@@ -951,8 +951,8 @@ Normalize `Runtime.consoleAPICalled` and `Log.entryAdded` into timestamp/level/t
 - [ ] **Step 5: Route, verify, and commit**
 
 ```bash
-pnpm --filter @dsh-external/dsh-browser-bridge-extension test -- capture console-network
-pnpm --filter @dsh-external/dsh-browser-bridge-extension typecheck
+pnpm --filter @ycp424c/dsh-browser-bridge-extension test -- capture console-network
+pnpm --filter @ycp424c/dsh-browser-bridge-extension typecheck
 git add extension/src/cdp extension/src/bridge/router.ts extension/tests
 git commit -m "feat: capture browser verification evidence"
 ```
@@ -1004,8 +1004,8 @@ Also assert that an expired grant detaches its owned session, tab close revokes 
 - [ ] **Step 2: Run focused recovery tests and capture the failures**
 
 ```bash
-pnpm --filter @dsh-external/dsh-browser-bridge test -- bridge-server recovery
-pnpm --filter @dsh-external/dsh-browser-bridge-extension test -- recovery security
+pnpm --filter @ycp424c/dsh-browser-bridge test -- bridge-server recovery
+pnpm --filter @ycp424c/dsh-browser-bridge-extension test -- recovery security
 ```
 
 Expected: FAIL because accepted-call acknowledgement, startup ownership cleanup, and reconnect classification are not implemented.
@@ -1054,9 +1054,9 @@ Map raw Chrome and WebSocket errors to the stable `BridgeError` union. Logs may 
 - [ ] **Step 7: Run recovery/security suites and commit**
 
 ```bash
-pnpm --filter @dsh-external/dsh-browser-bridge-protocol test
-pnpm --filter @dsh-external/dsh-browser-bridge test -- bridge-server recovery
-pnpm --filter @dsh-external/dsh-browser-bridge-extension test -- recovery security
+pnpm --filter @ycp424c/dsh-browser-bridge-protocol test
+pnpm --filter @ycp424c/dsh-browser-bridge test -- bridge-server recovery
+pnpm --filter @ycp424c/dsh-browser-bridge-extension test -- recovery security
 pnpm typecheck
 git add packages/protocol packages/dsh-plugin extension
 git commit -m "fix: harden browser bridge lifecycle"
@@ -1103,8 +1103,8 @@ The same suite verifies a continuation within turn 1 keeps the tools, turn 2 can
 - [ ] **Step 2: Run the composition test and confirm the integration gap**
 
 ```bash
-pnpm --filter @dsh-external/dsh-browser-bridge build
-pnpm --filter @dsh-external/dsh-browser-bridge test -- composition.e2e
+pnpm --filter @ycp424c/dsh-browser-bridge build
+pnpm --filter @ycp424c/dsh-browser-bridge test -- composition.e2e
 ```
 
 Expected: FAIL until the real manifests, service declarations, route upgrade API, and client/host output paths agree.
@@ -1153,9 +1153,9 @@ Also observe semantic refs, click/type/select, take a PNG screenshot, capture th
 - [ ] **Step 6: Run both integration layers and commit**
 
 ```bash
-pnpm --filter @dsh-external/dsh-browser-bridge build
-pnpm --filter @dsh-external/dsh-browser-bridge test -- composition.e2e
-pnpm --filter @dsh-external/dsh-browser-bridge-extension build
+pnpm --filter @ycp424c/dsh-browser-bridge build
+pnpm --filter @ycp424c/dsh-browser-bridge test -- composition.e2e
+pnpm --filter @ycp424c/dsh-browser-bridge-extension build
 pnpm exec playwright test e2e/extension.spec.ts
 git add package.json pnpm-lock.yaml playwright.config.ts packages/dsh-plugin/tests e2e
 git commit -m "test: cover the browser bridge feedback loop"
@@ -1181,7 +1181,7 @@ corepack enable
 pnpm link:dsh -- /absolute/path/to/dsh
 pnpm install --frozen-lockfile
 pnpm check
-pnpm --filter @dsh-external/dsh-browser-bridge-extension zip
+pnpm --filter @ycp424c/dsh-browser-bridge-extension zip
 dsh plugin --profile web add /absolute/path/to/dsh-browser-bridge/packages/dsh-plugin
 dsh web
 ```
@@ -1207,9 +1207,9 @@ Do not market this as browser-wide Computer Use or test-only validation. Describ
 Pin public package fields, repository URL, license, files lists, engines, exports, DSH manifest paths, and build scripts. Add `extension` scripts for `dev`, `build`, `zip`, `typecheck`, and `test`; add plugin scripts for host/client build, typecheck, and test. Ensure package tarball dry-runs contain only runtime artifacts, manifests, README/license metadata, and source maps intended for debugging:
 
 ```bash
-pnpm --filter @dsh-external/dsh-browser-bridge pack --dry-run
-pnpm --filter @dsh-external/dsh-browser-bridge-protocol pack --dry-run
-pnpm --filter @dsh-external/dsh-browser-bridge-extension zip
+pnpm --filter @ycp424c/dsh-browser-bridge pack --dry-run
+pnpm --filter @ycp424c/dsh-browser-bridge-protocol pack --dry-run
+pnpm --filter @ycp424c/dsh-browser-bridge-extension zip
 ```
 
 - [ ] **Step 4: Add CI with the same gates as local verification**
@@ -1226,9 +1226,9 @@ pnpm typecheck
 pnpm test
 pnpm build
 pnpm exec playwright test
-pnpm --filter @dsh-external/dsh-browser-bridge pack --dry-run
-pnpm --filter @dsh-external/dsh-browser-bridge-protocol pack --dry-run
-pnpm --filter @dsh-external/dsh-browser-bridge-extension zip
+pnpm --filter @ycp424c/dsh-browser-bridge pack --dry-run
+pnpm --filter @ycp424c/dsh-browser-bridge-protocol pack --dry-run
+pnpm --filter @ycp424c/dsh-browser-bridge-extension zip
 git diff --check
 ```
 

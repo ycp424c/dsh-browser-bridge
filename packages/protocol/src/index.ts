@@ -1,5 +1,5 @@
 /**
- * @dsh-external/dsh-browser-bridge-protocol — transport-neutral wire schemas
+ * @ycp424c/dsh-browser-bridge-protocol — transport-neutral wire schemas
  * shared by the Chrome extension and the DSH plugin.
  */
 export * from './ids.ts'

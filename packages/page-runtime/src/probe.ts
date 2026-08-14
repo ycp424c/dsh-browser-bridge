@@ -13,7 +13,7 @@
  * truth: a missing header still falls through to body validation, and an
  * explicitly non-JSON type fails immediately.
  */
-import { VITE_PAGE_PROTOCOL_VERSION } from '@dsh-external/dsh-browser-bridge-protocol'
+import { VITE_PAGE_PROTOCOL_VERSION } from '@ycp424c/dsh-browser-bridge-protocol'
 
 export interface ProbeOptions {
   dshOrigin: string

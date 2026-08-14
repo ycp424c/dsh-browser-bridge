@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { GrantId, PROTOCOL_VERSION, type BridgeFrame } from '@dsh-external/dsh-browser-bridge-protocol'
-import type { TabDescriptor } from '@dsh-external/dsh-browser-bridge-protocol'
+import { GrantId, PROTOCOL_VERSION, type BridgeFrame } from '@ycp424c/dsh-browser-bridge-protocol'
+import type { TabDescriptor } from '@ycp424c/dsh-browser-bridge-protocol'
 import { BridgeRouter } from '../src/bridge/router.ts'
 import type { BridgeClient } from '../src/bridge/client.ts'
 import type { TabCatalog } from '../src/tabs/catalog.ts'
 import { GrantVault } from '../src/grants/vault.ts'
 import { CdpSessionManager } from '../src/cdp/session-manager.ts'
 import { ChromeDebugger, type ChromeDebuggerApi } from '../src/cdp/chrome-debugger.ts'
-import { decodeFrame } from '@dsh-external/dsh-browser-bridge-protocol'
+import { decodeFrame } from '@ycp424c/dsh-browser-bridge-protocol'
 import { BridgeClient as RealBridgeClient, type BridgeSocket } from '../src/bridge/client.ts'
 
 const TAB: TabDescriptor = { tabId: 9, windowId: 3, title: 'App', url: 'http://127.0.0.1:4173/' }

@@ -6,7 +6,7 @@
  * plus origin against the local host through the Vite API before exposing
  * the current-page button. The chrome-extension channel is never reused.
  */
-import type { BrowserTargetDescriptor, TargetId } from '@dsh-external/dsh-browser-bridge-protocol'
+import type { BrowserTargetDescriptor, TargetId } from '@ycp424c/dsh-browser-bridge-protocol'
 import type { ViteTargetApi } from './vite-api.ts'
 
 export interface ViteParentChannelEnv {

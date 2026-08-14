@@ -11,7 +11,7 @@ import { mkdtempSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { chromium, expect, test, type BrowserContext, type Page } from '@playwright/test'
-import { PROTOCOL_VERSION } from '@dsh-external/dsh-browser-bridge-protocol'
+import { PROTOCOL_VERSION } from '@ycp424c/dsh-browser-bridge-protocol'
 import { BridgeHarness } from './bridge-harness.ts'
 import { FixtureServer } from './fixture-server.ts'
 import type { AttachedGrant } from './bridge-harness.ts'
@@ -23,7 +23,7 @@ const HEADED = process.env.HEADED === '1'
 
 function buildExtension(): void {
   // Always rebuild: the E2E must exercise the current sources.
-  execFileSync('pnpm', ['--filter', '@dsh-external/dsh-browser-bridge-extension', 'build'], {
+  execFileSync('pnpm', ['--filter', '@ycp424c/dsh-browser-bridge-extension', 'build'], {
     cwd: REPO_ROOT,
     stdio: 'inherit',
     shell: true,

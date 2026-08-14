@@ -11,7 +11,7 @@ import type {
   GrantId,
   JsonValue,
   RequestId,
-} from '@dsh-external/dsh-browser-bridge-protocol'
+} from '@ycp424c/dsh-browser-bridge-protocol'
 
 /**
  * One grant-bound target snapshot: the normalized descriptor plus the

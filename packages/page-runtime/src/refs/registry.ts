@@ -5,7 +5,7 @@
  * HMR, navigation, DOM replacement, and dispose clear every record so a
  * stale reference is never guessed at.
  */
-import { newElementRef, type ElementRef } from '@dsh-external/dsh-browser-bridge-protocol'
+import { newElementRef, type ElementRef } from '@ycp424c/dsh-browser-bridge-protocol'
 import { bridgeFailure } from '../tools/dispatcher.ts'
 
 const REF_PATTERN = /^[A-Za-z0-9_-]{16,64}$/

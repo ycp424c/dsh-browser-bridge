@@ -1,5 +1,5 @@
 {
-  "name": "@dsh-external/dsh-browser-bridge-protocol",
+  "name": "@ycp424c/dsh-browser-bridge-protocol",
   "description": "Transport-neutral wire schemas for the DSH browser bridge",
   "version": "0.1.0",
   "type": "module",
@@ -35,7 +35,7 @@
   "license": "BSD-3-Clause",
   "repository": {
     "type": "git",
-    "url": "https://github.com/dsh-external/dsh-browser-bridge.git"
+    "url": "https://github.com/ycp424c/dsh-browser-bridge.git"
   },
   "engines": {
     "node": "^22.19.0 || >=24.0.0"

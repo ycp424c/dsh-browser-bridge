@@ -3,7 +3,7 @@
  * no `DOM.documentUpdated`, lifecycle, or main-frame navigation event during
  * the quiet window — it is not a claim that network activity ended.
  */
-import { bridgeError } from '@dsh-external/dsh-browser-bridge-protocol'
+import { bridgeError } from '@ycp424c/dsh-browser-bridge-protocol'
 import type { TabSession } from './session-manager.ts'
 
 export type WaitCondition =

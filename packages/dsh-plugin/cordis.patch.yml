@@ -5,7 +5,7 @@
 # and screenshot evidence is admitted only for image-capable models.
 - insert:
     - id: dsh-browser-bridge
-      name: '@dsh-external/dsh-browser-bridge'
+      name: '@ycp424c/dsh-browser-bridge'
       inject:
         - webServer
         - attachments

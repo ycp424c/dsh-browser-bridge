@@ -10,7 +10,7 @@ import {
   type GrantHandle,
   type GrantId,
   type TabDescriptor,
-} from '@dsh-external/dsh-browser-bridge-protocol'
+} from '@ycp424c/dsh-browser-bridge-protocol'
 
 export interface VaultGrant {
   grantId: GrantId

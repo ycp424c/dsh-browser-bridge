@@ -9,7 +9,7 @@
  * settles a pending activation without leaks.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { VITE_PAGE_PROTOCOL_VERSION } from '@dsh-external/dsh-browser-bridge-protocol'
+import { VITE_PAGE_PROTOCOL_VERSION } from '@ycp424c/dsh-browser-bridge-protocol'
 import { startPageRuntime, type PageRuntime } from '../src/runtime.ts'
 import type { PageRuntimeConfig } from '../src/config.ts'
 

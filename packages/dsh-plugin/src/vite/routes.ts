@@ -6,7 +6,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { WebSocketServer } from 'ws'
-import { VITE_PAGE_PROTOCOL_VERSION, type TargetId } from '@dsh-external/dsh-browser-bridge-protocol'
+import { VITE_PAGE_PROTOCOL_VERSION, type TargetId } from '@ycp424c/dsh-browser-bridge-protocol'
 import { attachViteWebSocket, ViteTargetBroker } from './broker.ts'
 import { isLoopbackDshOrigin } from './sanitize.ts'
 import type { TargetCoordinator } from '../targets/coordinator.ts'

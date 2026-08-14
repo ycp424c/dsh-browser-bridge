@@ -12,7 +12,7 @@ import type {
   InputTriggerSource,
   PickOutcome,
 } from '@deepseek-ai/dsh-client-ui-input-trigger/src/types.ts'
-import { encodeMarker, type BrowserTargetDescriptor } from '@dsh-external/dsh-browser-bridge-protocol'
+import { encodeMarker, type BrowserTargetDescriptor } from '@ycp424c/dsh-browser-bridge-protocol'
 import type { ViteTargetApi } from './vite-api.ts'
 import { ReferenceStore } from './reference-store.ts'
 

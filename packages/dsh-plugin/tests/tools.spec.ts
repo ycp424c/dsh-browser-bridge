@@ -4,7 +4,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { AttachmentId, type AttachmentStore, type ImageAttachmentRef, type SaveImageAttachment } from '@deepseek-ai/dsh-attachment'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
-import { GrantId, type BrowserOperation, type BrowserTargetDescriptor, type JsonValue, type TabDescriptor } from '@dsh-external/dsh-browser-bridge-protocol'
+import { GrantId, type BrowserOperation, type BrowserTargetDescriptor, type JsonValue, type TabDescriptor } from '@ycp424c/dsh-browser-bridge-protocol'
 import { createBrowserTools, type BrowserToolsDeps, type PageAlias } from '../src/tools/definitions.ts'
 
 const TAB: TabDescriptor = { tabId: 7, windowId: 2, title: 'Fixture', url: 'http://127.0.0.1:4173/' }

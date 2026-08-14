@@ -3,7 +3,7 @@
  * a main-frame document navigation clears the whole registry, and resolving
  * a ref from another generation fails with `stale_element`.
  */
-import { bridgeError, newElementRef, type ElementRef as ElementRefBrand } from '@dsh-external/dsh-browser-bridge-protocol'
+import { bridgeError, newElementRef, type ElementRef as ElementRefBrand } from '@ycp424c/dsh-browser-bridge-protocol'
 
 export interface NodeRecord {
   ref: ElementRefBrand

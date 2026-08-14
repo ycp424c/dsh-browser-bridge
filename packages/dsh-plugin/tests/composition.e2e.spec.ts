@@ -21,7 +21,7 @@ import {
   GrantId, newGrantId, PROTOCOL_VERSION, VITE_PAGE_PROTOCOL_VERSION, encodeMarker,
   type BridgeFrame, type GrantAcceptedFrame, type GrantPutFrame,
   type HelloOkFrame, type TabDescriptor, type ToolCallFrame, type ToolResultFrame,
-} from '@dsh-external/dsh-browser-bridge-protocol'
+} from '@ycp424c/dsh-browser-bridge-protocol'
 
 const EXT_A = 'chrome-extension://abcdefghijklmnopabcdefghijklmnop'
 const FIXTURE_URL = 'http://127.0.0.1:4173/'
@@ -265,8 +265,8 @@ interface Composition {
 
 async function makeComposition(): Promise<Composition> {
   const profileDir = await mkdtemp(join(tmpdir(), 'dsh-bridge-profile-'))
-  await mkdir(join(profileDir, 'node_modules/@dsh-external'), { recursive: true })
-  await symlink(pluginDir, join(profileDir, 'node_modules/@dsh-external/dsh-browser-bridge'), 'dir')
+  await mkdir(join(profileDir, 'node_modules/@ycp424c'), { recursive: true })
+  await symlink(pluginDir, join(profileDir, 'node_modules/@ycp424c/dsh-browser-bridge'), 'dir')
   // An empty base file plus the plugin's one-row profile bundle patch.
   await writeFile(join(profileDir, 'cordis.yml'), '[]\n')
 
@@ -289,7 +289,7 @@ async function makeComposition(): Promise<Composition> {
       patches: [{
         insert: [{
           id: 'dsh-browser-bridge',
-          name: '@dsh-external/dsh-browser-bridge',
+          name: '@ycp424c/dsh-browser-bridge',
           inject: ['webServer', 'attachments', 'llm'],
         }],
       }],

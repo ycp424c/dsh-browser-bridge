@@ -23,8 +23,8 @@ import {
   type ConnectionId as ConnectionIdBrand,
   type JsonValue,
   type TabDescriptor,
-} from '@dsh-external/dsh-browser-bridge-protocol'
-import { BROWSER_OPERATIONS } from '@dsh-external/dsh-browser-bridge-protocol'
+} from '@ycp424c/dsh-browser-bridge-protocol'
+import { BROWSER_OPERATIONS } from '@ycp424c/dsh-browser-bridge-protocol'
 import type { WebSocket } from 'ws'
 import { PairingStore } from './pairing-store.ts'
 import { isReadOperation } from '../tools/definitions.ts'

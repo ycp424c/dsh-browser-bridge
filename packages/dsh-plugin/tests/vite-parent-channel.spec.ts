@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { BrowserTargetDescriptor } from '@dsh-external/dsh-browser-bridge-protocol'
+import type { BrowserTargetDescriptor } from '@ycp424c/dsh-browser-bridge-protocol'
 import { ViteParentChannel, type ViteParentChannelEnv } from '../src/client/vite-parent-channel.ts'
 import type { ViteTargetApi } from '../src/client/vite-api.ts'
 

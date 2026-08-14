@@ -1,12 +1,12 @@
 /**
- * @dsh-external/dsh-browser-bridge-vite — injects the DSH browser bridge
+ * @ycp424c/dsh-browser-bridge-vite — injects the DSH browser bridge
  * page runtime into Vite pages. Dev serves inject by default; production
  * builds inject only when `bridge.injectInBuild` is explicitly true, and
  * the serialized config keeps the production default of zero-network
  * dormancy. Library mode and non-HTML SSR output are never injected.
  */
 import type { Plugin, ResolvedConfig } from 'vite'
-import type { PageRuntimeConfig } from '@dsh-external/dsh-browser-bridge-page-runtime'
+import type { PageRuntimeConfig } from '@ycp424c/dsh-browser-bridge-page-runtime'
 import { resolveOptions, type DshBrowserBridgeOptions } from './options.ts'
 import { VIRTUAL_RUNTIME_ID, VIRTUAL_RUNTIME_INTERNAL_ID, runtimeModuleSource } from './virtual-entry.ts'
 

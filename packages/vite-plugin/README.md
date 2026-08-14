@@ -1,4 +1,4 @@
-# @dsh-external/dsh-browser-bridge-vite
+# @ycp424c/dsh-browser-bridge-vite
 
 Vite plugin that injects the DSH browser bridge page runtime. Dev serves
 inject by default; production builds inject only with the explicit
@@ -7,7 +7,7 @@ production default of zero-network dormancy. Library mode and non-HTML SSR
 output are never injected.
 
 ```ts
-import { dshBrowserBridge } from '@dsh-external/dsh-browser-bridge-vite'
+import { dshBrowserBridge } from '@ycp424c/dsh-browser-bridge-vite'
 
 export default defineConfig({
   plugins: [dshBrowserBridge({ dshOrigin: 'http://127.0.0.1:3080' })],

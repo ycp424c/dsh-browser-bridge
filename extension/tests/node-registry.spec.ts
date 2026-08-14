@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ElementRef } from '@dsh-external/dsh-browser-bridge-protocol'
+import { ElementRef } from '@ycp424c/dsh-browser-bridge-protocol'
 import { NodeRegistry } from '../src/cdp/nodes.ts'
 
 describe('node registry', () => {

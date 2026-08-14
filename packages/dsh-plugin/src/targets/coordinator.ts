@@ -14,7 +14,7 @@ import {
   type JsonValue,
   type RequestId,
   type TargetId,
-} from '@dsh-external/dsh-browser-bridge-protocol'
+} from '@ycp424c/dsh-browser-bridge-protocol'
 import { GrantStore, type GrantRecord } from '../bridge/grant-store.ts'
 import type { ProviderRegistry } from './provider-registry.ts'
 import type { TargetBinding } from './types.ts'

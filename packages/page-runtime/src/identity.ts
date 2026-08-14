@@ -4,7 +4,7 @@
  * before reuse and the generation increments monotonically across same-tab
  * reloads. Nothing here ever touches localStorage.
  */
-import { newTargetId, type TargetId } from '@dsh-external/dsh-browser-bridge-protocol'
+import { newTargetId, type TargetId } from '@ycp424c/dsh-browser-bridge-protocol'
 
 export const TARGET_ID_KEY = 'dsh-browser-bridge:targetId'
 export const GENERATION_KEY = 'dsh-browser-bridge:generation'

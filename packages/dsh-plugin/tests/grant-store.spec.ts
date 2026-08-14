@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ConnectionId, GrantId, newTargetId } from '@dsh-external/dsh-browser-bridge-protocol'
+import { ConnectionId, GrantId, newTargetId } from '@ycp424c/dsh-browser-bridge-protocol'
 import { GrantStore } from '../src/bridge/grant-store.ts'
 import type { TargetBinding } from '../src/targets/types.ts'
 

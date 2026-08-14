@@ -10,7 +10,7 @@ import {
   type BridgeError,
   type JsonValue,
   type ViteBrowserCapability,
-} from '@dsh-external/dsh-browser-bridge-protocol'
+} from '@ycp424c/dsh-browser-bridge-protocol'
 import { z } from 'zod'
 import type { PageDispatcher as PageDispatcherContract } from '../transport/socket.ts'
 

@@ -15,7 +15,7 @@ import {
   bridgeError,
   type BridgeError,
   type GrantId,
-} from '@dsh-external/dsh-browser-bridge-protocol'
+} from '@ycp424c/dsh-browser-bridge-protocol'
 import type { ChromeDebuggerApi } from './chrome-debugger.ts'
 import { NodeRegistry } from './nodes.ts'
 import { EVIDENCE_BUFFER_SIZE, normalizeConsoleEntry, normalizeNetworkEntry, pushBounded } from './capture.ts'

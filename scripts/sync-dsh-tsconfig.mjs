@@ -14,7 +14,7 @@ if (dshSourceRoot() === null) {
   // Workspace-internal packages resolve to source so dependents can typecheck
   // and unit-test without a prior build of the dependency.
   const current = JSON.parse(readFileSync(output, 'utf8'))
-  current.compilerOptions.paths['@dsh-external/dsh-browser-bridge-protocol'] = [
+  current.compilerOptions.paths['@ycp424c/dsh-browser-bridge-protocol'] = [
     '../packages/protocol/src/index.ts',
   ]
   writeFileSync(output, `${JSON.stringify(current, null, 2)}\n`)

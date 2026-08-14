@@ -34,7 +34,7 @@
 
 ## 与 dsh-browser 的关系
 
-[dsh-browser](https://github.com/dsh-external/dsh-browser) 与本项目同属 dsh-external 组织，定位互补，面向不同的工作流：
+[dsh-browser](https://github.com/ycp424c/dsh-browser) 与本项目同属 ycp424c 名下，定位互补，面向不同的工作流：
 
 | 维度 | dsh-browser | dsh-browser-bridge |
 | --- | --- | --- |
@@ -125,13 +125,13 @@ pnpm install --frozen-lockfile
 pnpm check
 
 # 3. 构建插件并安装到 DSH 的 web profile
-pnpm --filter @dsh-external/dsh-browser-bridge build
+pnpm --filter @ycp424c/dsh-browser-bridge build
 dsh plugin --profile web add /absolute/path/to/dsh-browser-bridge/packages/dsh-plugin
 dsh web
 
 # 4. 构建扩展，然后在 chrome://extensions 中启用开发者模式并"加载已解压的扩展程序"
-pnpm --filter @dsh-external/dsh-browser-bridge-extension build
-pnpm --filter @dsh-external/dsh-browser-bridge-extension zip
+pnpm --filter @ycp424c/dsh-browser-bridge-extension build
+pnpm --filter @ycp424c/dsh-browser-bridge-extension zip
 ```
 
 扩展输出目录为 `extension/output/chrome-mv3`。加载后点击工具栏图标打开侧边栏，第一个界面会让你配置本地 DSH Web 来源（默认 `http://127.0.0.1:3080`），面板随后在 iframe 中嵌入 DSH Web 并显示连接横幅。
@@ -153,11 +153,11 @@ Chrome Extension 与 Vite provider 是**互补**的接入方式，而非替代�
 ### 安装与配置
 
 ```bash
-pnpm add -D @dsh-external/dsh-browser-bridge-vite
+pnpm add -D @ycp424c/dsh-browser-bridge-vite
 ```
 
 ```ts
-import { dshBrowserBridge } from '@dsh-external/dsh-browser-bridge-vite'
+import { dshBrowserBridge } from '@ycp424c/dsh-browser-bridge-vite'
 
 export default defineConfig({
   plugins: [

@@ -1,5 +1,5 @@
 import { defineConfig } from 'vite'
-import { dshBrowserBridge } from '@dsh-external/dsh-browser-bridge-vite'
+import { dshBrowserBridge } from '@ycp424c/dsh-browser-bridge-vite'
 
 /**
  * Shared fixture config: the harness origin, panel policy, and project id

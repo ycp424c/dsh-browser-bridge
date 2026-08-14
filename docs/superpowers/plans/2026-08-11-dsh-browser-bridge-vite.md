@@ -105,7 +105,7 @@ describe('Vite page protocol', () => {
 Run:
 
 ~~~bash
-pnpm --filter @dsh-external/dsh-browser-bridge-protocol exec vitest run tests/vite-frames.spec.ts
+pnpm --filter @ycp424c/dsh-browser-bridge-protocol exec vitest run tests/vite-frames.spec.ts
 ~~~
 
 Expected: FAIL because targets.ts, vite-frames.ts, and their exports do not exist.
@@ -198,8 +198,8 @@ In addition to the complete union, export separate strict vitePageToHostFrameSch
 Run:
 
 ~~~bash
-pnpm --filter @dsh-external/dsh-browser-bridge-protocol test
-pnpm --filter @dsh-external/dsh-browser-bridge-protocol typecheck
+pnpm --filter @ycp424c/dsh-browser-bridge-protocol test
+pnpm --filter @ycp424c/dsh-browser-bridge-protocol typecheck
 ~~~
 
 Expected: all protocol tests pass, including existing frames.spec.ts unchanged.
@@ -256,7 +256,7 @@ Also retain an explicit test that an existing Chrome grant.put produces the same
 - [ ] **Step 2: Run targeted host tests and verify they fail**
 
 ~~~bash
-pnpm --filter @dsh-external/dsh-browser-bridge exec vitest run tests/provider-registry.spec.ts tests/grant-store.spec.ts tests/bridge-server.spec.ts
+pnpm --filter @ycp424c/dsh-browser-bridge exec vitest run tests/provider-registry.spec.ts tests/grant-store.spec.ts tests/bridge-server.spec.ts
 ~~~
 
 Expected: FAIL because provider-neutral host types do not exist.
@@ -327,9 +327,9 @@ Do not change packages/protocol/src/frames.ts or any Chrome frame schema.
 - [ ] **Step 6: Run targeted and complete host tests**
 
 ~~~bash
-pnpm --filter @dsh-external/dsh-browser-bridge exec vitest run tests/provider-registry.spec.ts tests/grant-store.spec.ts tests/bridge-server.spec.ts tests/recovery.spec.ts
-pnpm --filter @dsh-external/dsh-browser-bridge test
-pnpm --filter @dsh-external/dsh-browser-bridge typecheck
+pnpm --filter @ycp424c/dsh-browser-bridge exec vitest run tests/provider-registry.spec.ts tests/grant-store.spec.ts tests/bridge-server.spec.ts tests/recovery.spec.ts
+pnpm --filter @ycp424c/dsh-browser-bridge test
+pnpm --filter @ycp424c/dsh-browser-bridge typecheck
 ~~~
 
 Expected: all host tests pass; existing Chrome recovery and grant semantics remain unchanged.
@@ -390,7 +390,7 @@ it('rejects grant issuance from a non-DSH origin', async () => {
 - [ ] **Step 2: Run the new tests and verify they fail**
 
 ~~~bash
-pnpm --filter @dsh-external/dsh-browser-bridge exec vitest run tests/vite-broker.spec.ts tests/vite-routes.spec.ts
+pnpm --filter @ycp424c/dsh-browser-bridge exec vitest run tests/vite-broker.spec.ts tests/vite-routes.spec.ts
 ~~~
 
 Expected: FAIL because the broker and routes do not exist.
@@ -444,8 +444,8 @@ Construct one broker, register it with ProviderRegistry, mount its routes, and d
 - [ ] **Step 6: Run host integration and compatibility tests**
 
 ~~~bash
-pnpm --filter @dsh-external/dsh-browser-bridge exec vitest run tests/vite-broker.spec.ts tests/vite-routes.spec.ts tests/apply.spec.ts tests/composition.e2e.spec.ts
-pnpm --filter @dsh-external/dsh-browser-bridge test
+pnpm --filter @ycp424c/dsh-browser-bridge exec vitest run tests/vite-broker.spec.ts tests/vite-routes.spec.ts tests/apply.spec.ts tests/composition.e2e.spec.ts
+pnpm --filter @ycp424c/dsh-browser-bridge test
 ~~~
 
 Expected: new Vite tests and every pre-existing host test pass.
@@ -490,7 +490,7 @@ expect(toolNames(viteOnlyAgent)).not.toContain('browser_network')
 - [ ] **Step 2: Run targeted tests and verify they fail**
 
 ~~~bash
-pnpm --filter @dsh-external/dsh-browser-bridge exec vitest run tests/pre-step.spec.ts tests/tools.spec.ts
+pnpm --filter @ycp424c/dsh-browser-bridge exec vitest run tests/pre-step.spec.ts tests/tools.spec.ts
 ~~~
 
 Expected: FAIL because PageAlias and ActiveTurn still assume TabDescriptor and BridgeServer.
@@ -538,9 +538,9 @@ registerTurnTools calls coordinator.request. pre-step cleanup removes tools firs
 - [ ] **Step 6: Run targeted, complete host, and protocol tests**
 
 ~~~bash
-pnpm --filter @dsh-external/dsh-browser-bridge exec vitest run tests/pre-step.spec.ts tests/tools.spec.ts tests/composition.e2e.spec.ts
-pnpm --filter @dsh-external/dsh-browser-bridge test
-pnpm --filter @dsh-external/dsh-browser-bridge typecheck
+pnpm --filter @ycp424c/dsh-browser-bridge exec vitest run tests/pre-step.spec.ts tests/tools.spec.ts tests/composition.e2e.spec.ts
+pnpm --filter @ycp424c/dsh-browser-bridge test
+pnpm --filter @ycp424c/dsh-browser-bridge typecheck
 ~~~
 
 Expected: mixed-provider assertions pass and existing Chrome tool rendering remains unchanged.
@@ -586,7 +586,7 @@ it('keeps Vite discovery active outside an extension iframe', () => {
 - [ ] **Step 2: Run the new and existing client tests and verify failure**
 
 ~~~bash
-pnpm --filter @dsh-external/dsh-browser-bridge exec vitest run tests/vite-api.spec.ts tests/vite-source.spec.ts tests/vite-parent-channel.spec.ts tests/current-vite-page-button.spec.tsx tests/client-channel.spec.ts
+pnpm --filter @ycp424c/dsh-browser-bridge exec vitest run tests/vite-api.spec.ts tests/vite-source.spec.ts tests/vite-parent-channel.spec.ts tests/current-vite-page-button.spec.tsx tests/client-channel.spec.ts
 ~~~
 
 Expected: FAIL because the current client returns early unless its parent is chrome-extension.
@@ -634,9 +634,9 @@ Always register vite-pages. Attempt ExtensionChannel in a guarded branch and reg
 - [ ] **Step 7: Run the complete client test set and typecheck**
 
 ~~~bash
-pnpm --filter @dsh-external/dsh-browser-bridge exec vitest run tests/vite-api.spec.ts tests/vite-source.spec.ts tests/vite-parent-channel.spec.ts tests/current-vite-page-button.spec.tsx tests/tab-source.spec.ts tests/current-tab-button.spec.tsx tests/client-channel.spec.ts
-pnpm --filter @dsh-external/dsh-browser-bridge test
-pnpm --filter @dsh-external/dsh-browser-bridge typecheck
+pnpm --filter @ycp424c/dsh-browser-bridge exec vitest run tests/vite-api.spec.ts tests/vite-source.spec.ts tests/vite-parent-channel.spec.ts tests/current-vite-page-button.spec.tsx tests/tab-source.spec.ts tests/current-tab-button.spec.tsx tests/client-channel.spec.ts
+pnpm --filter @ycp424c/dsh-browser-bridge test
+pnpm --filter @ycp424c/dsh-browser-bridge typecheck
 ~~~
 
 Expected: standalone, Vite-embedded, and extension-embedded modes all pass.
@@ -672,7 +672,7 @@ git commit -m "feat: attach Vite pages from DSH Web"
 
 - [ ] **Step 1: Add package metadata and failing runtime-foundation tests**
 
-Use package name @dsh-external/dsh-browser-bridge-page-runtime, ESM library output, DOM libs, protocol workspace dependency, jsdom Vitest environment, and tsdown build. Tests cover:
+Use package name @ycp424c/dsh-browser-bridge-page-runtime, ESM library output, DOM libs, protocol workspace dependency, jsdom Vitest environment, and tsdown build. Tests cover:
 
 - loopback allowlist including localhost, *.localhost, 127/8, and ::1;
 - rejection of credentials, non-HTTP(S), and remote redirects;
@@ -689,7 +689,7 @@ Use package name @dsh-external/dsh-browser-bridge-page-runtime, ESM library outp
 - [ ] **Step 2: Run the package test and verify failure**
 
 ~~~bash
-pnpm --filter @dsh-external/dsh-browser-bridge-page-runtime test
+pnpm --filter @ycp424c/dsh-browser-bridge-page-runtime test
 ~~~
 
 Expected: FAIL because the package implementation does not exist.
@@ -751,9 +751,9 @@ No DOM tool or panel behavior is implemented in this task; the dispatcher return
 - [ ] **Step 7: Run tests, typecheck, and build**
 
 ~~~bash
-pnpm --filter @dsh-external/dsh-browser-bridge-page-runtime test
-pnpm --filter @dsh-external/dsh-browser-bridge-page-runtime typecheck
-pnpm --filter @dsh-external/dsh-browser-bridge-page-runtime build
+pnpm --filter @ycp424c/dsh-browser-bridge-page-runtime test
+pnpm --filter @ycp424c/dsh-browser-bridge-page-runtime typecheck
+pnpm --filter @ycp424c/dsh-browser-bridge-page-runtime build
 ~~~
 
 Expected: package foundation passes and produces ESM plus declarations.
@@ -796,7 +796,7 @@ expect(inspected.rect).toEqual(expect.objectContaining({ width: expect.any(Numbe
 - [ ] **Step 2: Run targeted tests and verify failure**
 
 ~~~bash
-pnpm --filter @dsh-external/dsh-browser-bridge-page-runtime exec vitest run tests/refs.spec.ts tests/sanitize.spec.ts tests/observe.spec.ts tests/inspect.spec.ts
+pnpm --filter @ycp424c/dsh-browser-bridge-page-runtime exec vitest run tests/refs.spec.ts tests/sanitize.spec.ts tests/observe.spec.ts tests/inspect.spec.ts
 ~~~
 
 Expected: FAIL because the DOM tool modules do not exist.
@@ -820,9 +820,9 @@ Dispatcher validates operation arguments with strict schemas before calling hand
 - [ ] **Step 7: Run Runtime tests, typecheck, and build**
 
 ~~~bash
-pnpm --filter @dsh-external/dsh-browser-bridge-page-runtime test
-pnpm --filter @dsh-external/dsh-browser-bridge-page-runtime typecheck
-pnpm --filter @dsh-external/dsh-browser-bridge-page-runtime build
+pnpm --filter @ycp424c/dsh-browser-bridge-page-runtime test
+pnpm --filter @ycp424c/dsh-browser-bridge-page-runtime typecheck
+pnpm --filter @ycp424c/dsh-browser-bridge-page-runtime build
 ~~~
 
 Expected: all Runtime tests pass and no secret fixture value appears in snapshots/output.
@@ -866,7 +866,7 @@ await expect(navigate({ url: 'https://other.example/' }))
 - [ ] **Step 2: Run targeted tests and verify failure**
 
 ~~~bash
-pnpm --filter @dsh-external/dsh-browser-bridge-page-runtime exec vitest run tests/act.spec.ts tests/navigate.spec.ts tests/wait.spec.ts tests/console.spec.ts tests/hmr.spec.ts
+pnpm --filter @ycp424c/dsh-browser-bridge-page-runtime exec vitest run tests/act.spec.ts tests/navigate.spec.ts tests/wait.spec.ts tests/console.spec.ts tests/hmr.spec.ts
 ~~~
 
 Expected: FAIL because the new handlers do not exist.
@@ -896,9 +896,9 @@ notifyHmrUpdate increments and persists generation, clears refs, waits for a bou
 - [ ] **Step 7: Run the full Runtime verification**
 
 ~~~bash
-pnpm --filter @dsh-external/dsh-browser-bridge-page-runtime test
-pnpm --filter @dsh-external/dsh-browser-bridge-page-runtime typecheck
-pnpm --filter @dsh-external/dsh-browser-bridge-page-runtime build
+pnpm --filter @ycp424c/dsh-browser-bridge-page-runtime test
+pnpm --filter @ycp424c/dsh-browser-bridge-page-runtime typecheck
+pnpm --filter @ycp424c/dsh-browser-bridge-page-runtime build
 ~~~
 
 Expected: all Runtime tests pass; screenshot and network are still absent from dispatcher registrations.
@@ -939,7 +939,7 @@ Assert that:
 - [ ] **Step 2: Run panel tests and verify failure**
 
 ~~~bash
-pnpm --filter @dsh-external/dsh-browser-bridge-page-runtime exec vitest run tests/panel-channel.spec.ts tests/panel.spec.ts
+pnpm --filter @ycp424c/dsh-browser-bridge-page-runtime exec vitest run tests/panel-channel.spec.ts tests/panel.spec.ts
 ~~~
 
 Expected: FAIL because the panel modules do not exist.
@@ -965,9 +965,9 @@ visible=true calls probe and only renders launcher on success. Shortcut/query/pe
 - [ ] **Step 6: Run Runtime tests, typecheck, and build**
 
 ~~~bash
-pnpm --filter @dsh-external/dsh-browser-bridge-page-runtime test
-pnpm --filter @dsh-external/dsh-browser-bridge-page-runtime typecheck
-pnpm --filter @dsh-external/dsh-browser-bridge-page-runtime build
+pnpm --filter @ycp424c/dsh-browser-bridge-page-runtime test
+pnpm --filter @ycp424c/dsh-browser-bridge-page-runtime typecheck
+pnpm --filter @ycp424c/dsh-browser-bridge-page-runtime build
 ~~~
 
 Expected: all panel and previous Runtime tests pass.
@@ -1002,7 +1002,7 @@ git commit -m "feat: embed local DSH Web in Vite pages"
 
 - [ ] **Step 1: Add package metadata and failing plugin tests**
 
-Use package name @dsh-external/dsh-browser-bridge-vite, ESM output, Vite ^8 peer dependency, page-runtime workspace dependency, and Vitest. The public plugin options retain bridge.injectInBuild, while the serialized PageRuntimeConfig omits that build-only switch. Tests cover:
+Use package name @ycp424c/dsh-browser-bridge-vite, ESM output, Vite ^8 peer dependency, page-runtime workspace dependency, and Vitest. The public plugin options retain bridge.injectInBuild, while the serialized PageRuntimeConfig omits that build-only switch. Tests cover:
 
 - bridge.enabled=false injects nothing;
 - serve injects by default;
@@ -1015,7 +1015,7 @@ Use package name @dsh-external/dsh-browser-bridge-vite, ESM output, Vite ^8 peer
 - [ ] **Step 2: Run plugin tests and verify failure**
 
 ~~~bash
-pnpm --filter @dsh-external/dsh-browser-bridge-vite test
+pnpm --filter @ycp424c/dsh-browser-bridge-vite test
 ~~~
 
 Expected: FAIL because the plugin package does not exist.
@@ -1038,7 +1038,7 @@ function serializeConfig(value: PageRuntimeConfig): string {
 Use virtual:dsh-browser-bridge/runtime with a null-byte internal ID. The virtual module starts Runtime and wires official HMR events:
 
 ~~~ts
-import { startPageRuntime } from '@dsh-external/dsh-browser-bridge-page-runtime'
+import { startPageRuntime } from '@ycp424c/dsh-browser-bridge-page-runtime'
 
 const runtime = startPageRuntime(PUBLIC_CONFIG)
 if (import.meta.hot) {
@@ -1056,9 +1056,9 @@ Use Vite createServer/build APIs in tests with temporary outDir. Assert developm
 - [ ] **Step 6: Run plugin tests, typecheck, and build**
 
 ~~~bash
-pnpm --filter @dsh-external/dsh-browser-bridge-vite test
-pnpm --filter @dsh-external/dsh-browser-bridge-vite typecheck
-pnpm --filter @dsh-external/dsh-browser-bridge-vite build
+pnpm --filter @ycp424c/dsh-browser-bridge-vite test
+pnpm --filter @ycp424c/dsh-browser-bridge-vite typecheck
+pnpm --filter @ycp424c/dsh-browser-bridge-vite build
 ~~~
 
 Expected: all injection/build tests pass on Vite 8.2.1.
@@ -1198,7 +1198,7 @@ README must present Extension and Vite as complementary providers. Add the appro
 INSTALL.md must include:
 
 ~~~bash
-pnpm add -D @dsh-external/dsh-browser-bridge-vite
+pnpm add -D @ycp424c/dsh-browser-bridge-vite
 ~~~
 
 and a complete vite.config.ts example. Troubleshooting must map dsh_unavailable, local_access_blocked, embedding_blocked, target_disconnected, unsupported_operation, stale_element, protocol_mismatch, and timeout to concrete checks.
@@ -1208,10 +1208,10 @@ and a complete vite.config.ts example. Troubleshooting must map dsh_unavailable,
 Run:
 
 ~~~bash
-pnpm --filter @dsh-external/dsh-browser-bridge-protocol test
-pnpm --filter @dsh-external/dsh-browser-bridge-page-runtime test
-pnpm --filter @dsh-external/dsh-browser-bridge-vite test
-pnpm --filter @dsh-external/dsh-browser-bridge test
+pnpm --filter @ycp424c/dsh-browser-bridge-protocol test
+pnpm --filter @ycp424c/dsh-browser-bridge-page-runtime test
+pnpm --filter @ycp424c/dsh-browser-bridge-vite test
+pnpm --filter @ycp424c/dsh-browser-bridge test
 pnpm check
 pnpm test:e2e
 git diff --check

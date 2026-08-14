@@ -2,7 +2,7 @@
  * Provider registry: one provider per kind. Duplicate registration is a
  * wiring bug and fails loudly; unknown providers are rejected at dispatch.
  */
-import type { BrowserProviderKind } from '@dsh-external/dsh-browser-bridge-protocol'
+import type { BrowserProviderKind } from '@ycp424c/dsh-browser-bridge-protocol'
 import type { BrowserProvider } from './types.ts'
 
 export class ProviderRegistry {

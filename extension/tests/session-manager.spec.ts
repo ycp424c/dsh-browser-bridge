@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { GrantId } from '@dsh-external/dsh-browser-bridge-protocol'
+import { GrantId } from '@ycp424c/dsh-browser-bridge-protocol'
 import { ChromeDebugger, type ChromeDebuggerApi } from '../src/cdp/chrome-debugger.ts'
 import { CdpSessionManager, type SessionDetachInfo } from '../src/cdp/session-manager.ts'
 import { navigatePage } from '../src/cdp/navigate.ts'

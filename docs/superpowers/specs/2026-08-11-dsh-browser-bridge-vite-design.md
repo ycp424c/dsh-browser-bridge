@@ -112,7 +112,7 @@ Chrome 的 `tabId/windowId` 和 Vite 的页面连接身份均留在 provider 内
 ## 6. Vite 插件配置
 
 ```ts
-import { dshBrowserBridge } from '@dsh-external/dsh-browser-bridge-vite'
+import { dshBrowserBridge } from '@ycp424c/dsh-browser-bridge-vite'
 
 export default defineConfig({
   plugins: [

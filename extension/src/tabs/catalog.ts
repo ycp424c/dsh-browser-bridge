@@ -4,7 +4,7 @@
  * extension pages are excluded. Descriptors are copies — never live tab
  * objects — so a grant stays bound to what the user actually attached.
  */
-import type { TabDescriptor } from '@dsh-external/dsh-browser-bridge-protocol'
+import type { TabDescriptor } from '@ycp424c/dsh-browser-bridge-protocol'
 
 export interface TabsApi {
   query(queryInfo: chrome.tabs.QueryInfo): Promise<chrome.tabs.Tab[]>

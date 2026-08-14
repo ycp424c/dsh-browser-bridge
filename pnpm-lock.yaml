@@ -8,13 +8,13 @@ importers:
 
   .:
     devDependencies:
-      '@dsh-external/dsh-browser-bridge-page-runtime':
+      '@ycp424c/dsh-browser-bridge-page-runtime':
         specifier: workspace:^
         version: link:packages/page-runtime
-      '@dsh-external/dsh-browser-bridge-protocol':
+      '@ycp424c/dsh-browser-bridge-protocol':
         specifier: workspace:^
         version: link:packages/protocol
-      '@dsh-external/dsh-browser-bridge-vite':
+      '@ycp424c/dsh-browser-bridge-vite':
         specifier: workspace:^
         version: link:packages/vite-plugin
       '@playwright/test':
@@ -54,7 +54,7 @@ importers:
         specifier: ^19.1.0
         version: 19.2.8(react@19.2.8)
     devDependencies:
-      '@dsh-external/dsh-browser-bridge-protocol':
+      '@ycp424c/dsh-browser-bridge-protocol':
         specifier: workspace:^
         version: link:../packages/protocol
       '@tailwindcss/vite':
@@ -166,7 +166,7 @@ importers:
       '@deepseek-ai/schemastery':
         specifier: link:../../.dsh/source/current/vendor/schemastery
         version: link:../../.dsh/source/current/vendor/schemastery
-      '@dsh-external/dsh-browser-bridge-protocol':
+      '@ycp424c/dsh-browser-bridge-protocol':
         specifier: workspace:^
         version: link:../protocol
       '@types/node':
@@ -205,7 +205,7 @@ importers:
 
   packages/page-runtime:
     dependencies:
-      '@dsh-external/dsh-browser-bridge-protocol':
+      '@ycp424c/dsh-browser-bridge-protocol':
         specifier: workspace:^
         version: link:../protocol
       zod:
@@ -243,7 +243,7 @@ importers:
 
   packages/vite-plugin:
     dependencies:
-      '@dsh-external/dsh-browser-bridge-page-runtime':
+      '@ycp424c/dsh-browser-bridge-page-runtime':
         specifier: workspace:^
         version: link:../page-runtime
       zod:

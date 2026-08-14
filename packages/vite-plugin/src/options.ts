@@ -5,7 +5,7 @@
  * frontend bundle.
  */
 import { z } from 'zod'
-import { normalizeDshOrigin } from '@dsh-external/dsh-browser-bridge-page-runtime'
+import { normalizeDshOrigin } from '@ycp424c/dsh-browser-bridge-page-runtime'
 
 export interface DshBrowserBridgeOptions {
   /** Exact loopback DSH origin the injected pages may reach. */

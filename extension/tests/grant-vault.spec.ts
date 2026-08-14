@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { GrantId, type TabDescriptor } from '@dsh-external/dsh-browser-bridge-protocol'
+import { GrantId, type TabDescriptor } from '@ycp424c/dsh-browser-bridge-protocol'
 import { GrantVault } from '../src/grants/vault.ts'
 
 const TAB: TabDescriptor = { tabId: 9, windowId: 3, title: 'App', url: 'http://127.0.0.1:4173/' }

@@ -20,7 +20,7 @@ import {
   type TargetId,
   type ViteBrowserTargetDescriptor,
   type VitePageToHostFrame,
-} from '@dsh-external/dsh-browser-bridge-protocol'
+} from '@ycp424c/dsh-browser-bridge-protocol'
 import {
   MAX_VITE_CONCURRENT_CALLS,
   MAX_VITE_DISCONNECT_MS,

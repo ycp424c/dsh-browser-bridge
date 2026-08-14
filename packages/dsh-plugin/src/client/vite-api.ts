@@ -4,7 +4,7 @@
  * to the exact local DSH origin without credentials; only the non-secret
  * handle ever crosses back into the client.
  */
-import type { BrowserTargetDescriptor, TargetId } from '@dsh-external/dsh-browser-bridge-protocol'
+import type { BrowserTargetDescriptor, TargetId } from '@ycp424c/dsh-browser-bridge-protocol'
 
 export interface ViteTargetApi {
   listTargets(signal?: AbortSignal): Promise<BrowserTargetDescriptor[]>

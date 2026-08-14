@@ -1,5 +1,5 @@
 {
-  "name": "@dsh-external/dsh-browser-bridge",
+  "name": "@ycp424c/dsh-browser-bridge",
   "version": "0.1.0",
   "description": "External DSH plugin (host + client) for the browser bridge",
   "host": "lib/index.js",

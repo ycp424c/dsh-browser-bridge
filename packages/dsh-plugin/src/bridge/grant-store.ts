@@ -9,7 +9,7 @@ import {
   newGrantHandle,
   type GrantHandle,
   type GrantId,
-} from '@dsh-external/dsh-browser-bridge-protocol'
+} from '@ycp424c/dsh-browser-bridge-protocol'
 import type { TargetBinding } from '../targets/types.ts'
 
 export interface GrantRecord {

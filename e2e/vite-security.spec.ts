@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { build } from 'vite'
-import { dshBrowserBridge } from '@dsh-external/dsh-browser-bridge-vite'
+import { dshBrowserBridge } from '@ycp424c/dsh-browser-bridge-vite'
 import { ViteBrokerHarness } from './vite-harness.ts'
 import { StaticServer } from './fixture-server.ts'
 

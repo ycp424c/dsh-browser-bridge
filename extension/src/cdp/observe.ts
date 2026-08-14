@@ -3,7 +3,7 @@
  * tree with short-lived element references. Password and secret values are
  * never returned; output is bounded by node and character caps.
  */
-import { bridgeError, type ElementRef } from '@dsh-external/dsh-browser-bridge-protocol'
+import { bridgeError, type ElementRef } from '@ycp424c/dsh-browser-bridge-protocol'
 import type { TabSession } from './session-manager.ts'
 
 export interface ObserveResult {

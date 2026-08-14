@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { PageRuntimeConfig } from '@dsh-external/dsh-browser-bridge-page-runtime'
+import type { PageRuntimeConfig } from '@ycp424c/dsh-browser-bridge-page-runtime'
 import { serializeConfig } from '../src/serialize.ts'
 
 const CONFIG: PageRuntimeConfig = {

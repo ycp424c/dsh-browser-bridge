@@ -58,7 +58,7 @@ export default [
   // external (the profile provides them); the shared protocol is inlined so
   // the plugin package is self-contained.
   defineConfig({
-    name: '@dsh-external/dsh-browser-bridge',
+    name: '@ycp424c/dsh-browser-bridge',
     entry: { index: 'src/index.ts' },
     format: ['esm'],
     platform: 'node',
@@ -77,13 +77,13 @@ export default [
       // not declared production dependencies), so the automatic
       // externalization never shadows the alwaysBundle list.
       alwaysBundle: (id) =>
-        id === '@dsh-external/dsh-browser-bridge-protocol'
+        id === '@ycp424c/dsh-browser-bridge-protocol'
         || (id.startsWith('@deepseek-ai/') && id !== '@deepseek-ai/schemastery'),
     },
   }),
   // Browser half: DSH module-loader factory artifact at lib/client.js.
   defineConfig({
-    name: '@dsh-external/dsh-browser-bridge/client',
+    name: '@ycp424c/dsh-browser-bridge/client',
     entry: { client: 'src/client/index.tsx' },
     format: ['cjs'],
     platform: 'browser',
@@ -100,12 +100,12 @@ export default [
         '@deepseek-ai/dsh-client-ui-slots',
         '@deepseek-ai/dsh-client-runtime/client',
       ],
-      alwaysBundle: (id) => id === '@dsh-external/dsh-browser-bridge-protocol',
+      alwaysBundle: (id) => id === '@ycp424c/dsh-browser-bridge-protocol',
     },
     plugins: [inlineCssText()],
     outputOptions: {
       entryFileNames: 'client.js',
-      banner: `window.__ModuleLoader__.load({ id: "@dsh-external/dsh-browser-bridge", factory: (require) => {`,
+      banner: `window.__ModuleLoader__.load({ id: "@ycp424c/dsh-browser-bridge", factory: (require) => {`,
       footer: 'return module.exports; } });',
       intro: 'var module = { exports: {} }; var exports = module.exports;',
     },

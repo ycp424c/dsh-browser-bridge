@@ -4,7 +4,7 @@
  * inline module script, and only normalized public configuration is
  * serialized (the build-only injectInBuild switch is omitted).
  */
-import type { PageRuntimeConfig } from '@dsh-external/dsh-browser-bridge-page-runtime'
+import type { PageRuntimeConfig } from '@ycp424c/dsh-browser-bridge-page-runtime'
 
 export function serializeConfig(value: PageRuntimeConfig): string {
   return JSON.stringify(value)

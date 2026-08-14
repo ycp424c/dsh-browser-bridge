@@ -13,20 +13,20 @@
     "typecheck": "node scripts/sync-dsh-tsconfig.mjs && pnpm -r typecheck",
     "test": "pnpm -r test",
     "test:e2e": "playwright test",
-    "zip": "pnpm --filter @dsh-external/dsh-browser-bridge-extension zip",
+    "zip": "pnpm --filter @ycp424c/dsh-browser-bridge-extension zip",
     "check": "pnpm typecheck && pnpm test && pnpm build"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",
     "typescript": "^6.0.3",
     "vitest": "^4.1.10",
-    "@dsh-external/dsh-browser-bridge-protocol": "workspace:^",
+    "@ycp424c/dsh-browser-bridge-protocol": "workspace:^",
     "ws": "^8.21.0",
     "vite": "^8.2.1",
     "react": "^18.2.0",
     "vue": "^3.5.0",
-    "@dsh-external/dsh-browser-bridge-page-runtime": "workspace:^",
-    "@dsh-external/dsh-browser-bridge-vite": "workspace:^",
+    "@ycp424c/dsh-browser-bridge-page-runtime": "workspace:^",
+    "@ycp424c/dsh-browser-bridge-vite": "workspace:^",
     "react-dom": "^18.2.0"
   }
 }

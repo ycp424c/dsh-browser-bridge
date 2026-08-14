@@ -11,7 +11,7 @@ import type {
   InputTriggerSource,
   PickOutcome,
 } from '@deepseek-ai/dsh-client-ui-input-trigger/src/types.ts'
-import { encodeMarker, type TabDescriptor } from '@dsh-external/dsh-browser-bridge-protocol'
+import { encodeMarker, type TabDescriptor } from '@ycp424c/dsh-browser-bridge-protocol'
 import type { ExtensionChannel } from './extension-channel.ts'
 import { ReferenceStore } from './reference-store.ts'
 

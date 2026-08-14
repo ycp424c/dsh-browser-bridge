@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   ConnectionId, GrantHandle, GrantId, PROTOCOL_VERSION, type BridgeFrame,
   type GrantPutFrame, type TabDescriptor, type ToolAcceptedFrame,
-} from '@dsh-external/dsh-browser-bridge-protocol'
+} from '@ycp424c/dsh-browser-bridge-protocol'
 import { BridgeRouter, type ToolExecutor } from '../src/bridge/router.ts'
 import { BridgeClient as RealBridgeClient, type BridgeSocket } from '../src/bridge/client.ts'
 import type { BridgeClient } from '../src/bridge/client.ts'

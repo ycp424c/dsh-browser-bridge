@@ -11,12 +11,12 @@ import {
   type BridgeFrame,
   type GrantId,
   type TabDescriptor,
-} from '@dsh-external/dsh-browser-bridge-protocol'
+} from '@ycp424c/dsh-browser-bridge-protocol'
 import type { BridgeClient } from './client.ts'
 import { GrantVault } from '../grants/vault.ts'
 import type { TabCatalog } from '../tabs/catalog.ts'
 import type { CdpSessionManager, TabSession } from '../cdp/session-manager.ts'
-import type { BrowserOperation, JsonValue } from '@dsh-external/dsh-browser-bridge-protocol'
+import type { BrowserOperation, JsonValue } from '@ycp424c/dsh-browser-bridge-protocol'
 
 export type PanelRequest =
   | { type: 'bridge.connect'; requestId: string; wsUrl: string; pairingNonce: string }

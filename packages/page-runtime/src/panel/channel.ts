@@ -5,7 +5,7 @@
  * reply must arrive on the port within five seconds; a timeout maps to
  * `embedding_blocked` without disconnecting the target Runtime.
  */
-import type { TargetId } from '@dsh-external/dsh-browser-bridge-protocol'
+import type { TargetId } from '@ycp424c/dsh-browser-bridge-protocol'
 
 export interface PanelChannelEnv {
   postToIframe(message: unknown, targetOrigin: string, ports: unknown[]): void

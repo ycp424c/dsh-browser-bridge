@@ -7,7 +7,7 @@
  * creates nothing while the bridge activation pipeline keeps running.
  */
 import type { PageRuntimeConfig } from '../config.ts'
-import type { TargetId } from '@dsh-external/dsh-browser-bridge-protocol'
+import type { TargetId } from '@ycp424c/dsh-browser-bridge-protocol'
 import { PanelChannel } from './channel.ts'
 import { PANEL_STYLES } from './styles.ts'
 

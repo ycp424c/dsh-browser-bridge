@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   ConnectionId, PROTOCOL_VERSION, type BridgeFrame, type HelloOkFrame,
-} from '@dsh-external/dsh-browser-bridge-protocol'
+} from '@ycp424c/dsh-browser-bridge-protocol'
 import { BridgeClient, type BridgeSocket } from '../src/bridge/client.ts'
 
 class FakeSocket implements BridgeSocket {

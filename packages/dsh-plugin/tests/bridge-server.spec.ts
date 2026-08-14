@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   ConnectionId, GrantId, PROTOCOL_VERSION,
   type BridgeFrame, type GrantPutFrame, type HelloFrame, type ToolCallFrame, type ToolResultFrame,
-} from '@dsh-external/dsh-browser-bridge-protocol'
+} from '@ycp424c/dsh-browser-bridge-protocol'
 import { GrantStore } from '../src/bridge/grant-store.ts'
 import { PairingStore } from '../src/bridge/pairing-store.ts'
 import { BridgeServer, type BridgeSocket } from '../src/bridge/server.ts'

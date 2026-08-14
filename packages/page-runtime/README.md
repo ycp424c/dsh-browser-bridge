@@ -1,4 +1,4 @@
-# @dsh-external/dsh-browser-bridge-page-runtime
+# @ycp424c/dsh-browser-bridge-page-runtime
 
 Framework-neutral browser runtime injected into Vite pages by the DSH
 browser bridge. It probes and connects to the exact loopback DSH origin,

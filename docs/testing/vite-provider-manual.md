@@ -69,7 +69,7 @@ recorded with evidence.
 
 ## Instructions for completing the gate
 
-1. Start local DSH with the `@dsh-external/dsh-browser-bridge` plugin
+1. Start local DSH with the `@ycp424c/dsh-browser-bridge` plugin
    profile (see `INSTALL.md`).
 2. Run the dev and HTTPS fixtures with `dshOrigin` pointing at the real DSH
    port.

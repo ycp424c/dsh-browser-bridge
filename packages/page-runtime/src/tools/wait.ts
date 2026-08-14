@@ -4,7 +4,7 @@
  * the HMR manager. Every wait runs under an AbortSignal and a hard timeout,
  * and every observer/listener disconnects in `finally`.
  */
-import { bridgeError } from '@dsh-external/dsh-browser-bridge-protocol'
+import { bridgeError } from '@ycp424c/dsh-browser-bridge-protocol'
 import { bridgeFailure } from './dispatcher.ts'
 
 export interface WaitArgs {

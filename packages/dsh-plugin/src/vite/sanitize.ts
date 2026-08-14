@@ -5,7 +5,7 @@
  * exposure. Page data is sanitized AGAIN here even though the page runtime
  * already masks it, because the wire is untrusted.
  */
-import { VITE_BROWSER_CAPABILITIES, type JsonValue, type ViteBrowserTargetDescriptor } from '@dsh-external/dsh-browser-bridge-protocol'
+import { VITE_BROWSER_CAPABILITIES, type JsonValue, type ViteBrowserTargetDescriptor } from '@ycp424c/dsh-browser-bridge-protocol'
 
 /** Default host resource limits for the Vite broker (spec §12). */
 export const MAX_VITE_TARGETS = 32

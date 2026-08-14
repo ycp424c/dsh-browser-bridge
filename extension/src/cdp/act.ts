@@ -4,7 +4,7 @@
  * immediately before dispatch so a cross-origin race cannot write after
  * validation, and clicks arm an expected-navigation window.
  */
-import { bridgeError } from '@dsh-external/dsh-browser-bridge-protocol'
+import { bridgeError } from '@ycp424c/dsh-browser-bridge-protocol'
 import type { TabSession } from './session-manager.ts'
 import { resolveNode } from './inspect.ts'
 

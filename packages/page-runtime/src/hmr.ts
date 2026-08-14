@@ -4,7 +4,7 @@
  * target.update, and wakes every generation waiter. Generation waits fail
  * with unsupported_operation when HMR is unavailable (production).
  */
-import { bridgeError } from '@dsh-external/dsh-browser-bridge-protocol'
+import { bridgeError } from '@ycp424c/dsh-browser-bridge-protocol'
 import { bridgeFailure } from './tools/dispatcher.ts'
 import type { ElementRegistry } from './refs/registry.ts'
 

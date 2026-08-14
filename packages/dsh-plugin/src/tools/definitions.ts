@@ -17,7 +17,7 @@ import {
   type BrowserTargetDescriptor,
   type GrantId,
   type JsonValue,
-} from '@dsh-external/dsh-browser-bridge-protocol'
+} from '@ycp424c/dsh-browser-bridge-protocol'
 
 export interface PageAlias {
   alias: string

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { InputTriggerCandidate, InputTriggerPick, TokenSpan } from '@deepseek-ai/dsh-client-ui-input-trigger/src/types.ts'
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
-import type { BrowserTargetDescriptor } from '@dsh-external/dsh-browser-bridge-protocol'
+import type { BrowserTargetDescriptor } from '@ycp424c/dsh-browser-bridge-protocol'
 import { ReferenceStore } from '../src/client/reference-store.ts'
 import { createViteSource } from '../src/client/vite-source.ts'
 import type { ViteTargetApi } from '../src/client/vite-api.ts'

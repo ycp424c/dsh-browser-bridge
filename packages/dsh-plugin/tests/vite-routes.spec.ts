@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { VITE_PAGE_PROTOCOL_VERSION } from '@dsh-external/dsh-browser-bridge-protocol'
+import { VITE_PAGE_PROTOCOL_VERSION } from '@ycp424c/dsh-browser-bridge-protocol'
 import type { IncomingMessage } from 'node:http'
 import { GrantStore } from '../src/bridge/grant-store.ts'
 import { TargetCoordinator } from '../src/targets/coordinator.ts'

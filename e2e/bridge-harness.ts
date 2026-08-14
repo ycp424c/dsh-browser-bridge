@@ -17,7 +17,7 @@ import {
   type TabDescriptor,
   type ToolCallFrame,
   type ToolResultFrame,
-} from '@dsh-external/dsh-browser-bridge-protocol'
+} from '@ycp424c/dsh-browser-bridge-protocol'
 
 const EXTENSION_ORIGIN = /^chrome-extension:\/\/[a-p]{32}$/
 

@@ -1,5 +1,5 @@
 {
-  "name": "@dsh-external/dsh-browser-bridge-page-runtime",
+  "name": "@ycp424c/dsh-browser-bridge-page-runtime",
   "description": "Framework-neutral browser runtime injected into Vite pages by the DSH browser bridge",
   "version": "0.1.0",
   "type": "module",
@@ -25,7 +25,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@dsh-external/dsh-browser-bridge-protocol": "workspace:^",
+    "@ycp424c/dsh-browser-bridge-protocol": "workspace:^",
     "zod": "^4.4.3"
   },
   "devDependencies": {
@@ -37,7 +37,7 @@
   "license": "BSD-3-Clause",
   "repository": {
     "type": "git",
-    "url": "https://github.com/dsh-external/dsh-browser-bridge.git"
+    "url": "https://github.com/ycp424c/dsh-browser-bridge.git"
   },
   "engines": {
     "node": "^22.19.0 || >=24.0.0"

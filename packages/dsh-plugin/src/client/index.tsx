@@ -10,7 +10,7 @@
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 // Type-only: pulls the SlotMap declaration for `conversation.input.dock`.
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/src/client/contract/slots.ts'
-import type { TabDescriptor, BrowserTargetDescriptor } from '@dsh-external/dsh-browser-bridge-protocol'
+import type { TabDescriptor, BrowserTargetDescriptor } from '@ycp424c/dsh-browser-bridge-protocol'
 import { CurrentTabButton, type CurrentTabButtonInjected } from './CurrentTabButton.tsx'
 import { CurrentVitePageButton, type CurrentVitePageButtonInjected } from './CurrentVitePageButton.tsx'
 import { channelFromWindow } from './extension-channel.ts'

@@ -10,7 +10,7 @@ import { createScope } from '@deepseek-ai/dsh-scope'
 import {
   ConnectionId, GrantId, VITE_PAGE_PROTOCOL_VERSION, encodeMarker,
   type TabDescriptor, type TargetId,
-} from '@dsh-external/dsh-browser-bridge-protocol'
+} from '@ycp424c/dsh-browser-bridge-protocol'
 import { GrantStore } from '../src/bridge/grant-store.ts'
 import { BridgeServer, type BridgeSocket } from '../src/bridge/server.ts'
 import { PairingStore } from '../src/bridge/pairing-store.ts'

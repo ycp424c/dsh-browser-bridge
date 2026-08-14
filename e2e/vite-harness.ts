@@ -12,7 +12,7 @@ import {
   newRequestId,
   VITE_PAGE_PROTOCOL_VERSION,
   type JsonValue,
-} from '@dsh-external/dsh-browser-bridge-protocol'
+} from '@ycp424c/dsh-browser-bridge-protocol'
 
 export interface RecordedTarget {
   targetId: string

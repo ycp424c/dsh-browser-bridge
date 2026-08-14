@@ -56,7 +56,7 @@ Xvfb (see `.github/workflows/ci.yml`).
 ## 4. Install the plugin into DSH
 
 ```bash
-pnpm --filter @dsh-external/dsh-browser-bridge build
+pnpm --filter @ycp424c/dsh-browser-bridge build
 dsh plugin --profile web add /absolute/path/to/dsh-browser-bridge/packages/dsh-plugin
 dsh web
 ```
@@ -68,8 +68,8 @@ The profile installs the **directory** `packages/dsh-plugin` (which contains
 
 1. Build the extension and zip it for distribution:
    ```bash
-   pnpm --filter @dsh-external/dsh-browser-bridge-extension build
-   pnpm --filter @dsh-external/dsh-browser-bridge-extension zip
+   pnpm --filter @ycp424c/dsh-browser-bridge-extension build
+   pnpm --filter @ycp424c/dsh-browser-bridge-extension zip
    ```
    The zip is written under `extension/output/`.
 2. Open `chrome://extensions`, enable **Developer mode**, and choose
@@ -97,7 +97,7 @@ settings. Only HTTP(S) tabs can be attached; Chrome-protected pages
 ## 7. Uninstall
 
 - Remove the plugin from the DSH profile:
-  `dsh plugin --profile web remove @dsh-external/dsh-browser-bridge`.
+  `dsh plugin --profile web remove @ycp424c/dsh-browser-bridge`.
 - Remove the extension from `chrome://extensions`. Chrome detaches any
   debugger sessions owned by the extension and closes its side panel.
 - To drop the local link: delete the `.dsh/source` symlink.
@@ -107,14 +107,14 @@ settings. Only HTTP(S) tabs can be attached; Chrome-protected pages
 不安装扩展，把 DSH Browser Bridge 的页面 Runtime 注入到你的 Vite 页面：
 
 ```bash
-pnpm add -D @dsh-external/dsh-browser-bridge-vite
+pnpm add -D @ycp424c/dsh-browser-bridge-vite
 ```
 
 完整的 `vite.config.ts` 示例：
 
 ```ts
 import { defineConfig } from 'vite'
-import { dshBrowserBridge } from '@dsh-external/dsh-browser-bridge-vite'
+import { dshBrowserBridge } from '@ycp424c/dsh-browser-bridge-vite'
 
 export default defineConfig({
   plugins: [

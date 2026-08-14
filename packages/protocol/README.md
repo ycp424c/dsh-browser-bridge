@@ -1,4 +1,4 @@
-# @dsh-external/dsh-browser-bridge-protocol
+# @ycp424c/dsh-browser-bridge-protocol
 
 Transport-neutral, versioned wire schemas shared by the Chrome extension and
 the external DSH plugin of the DSH browser bridge. See the workspace

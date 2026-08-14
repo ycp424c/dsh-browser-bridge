@@ -6,7 +6,7 @@ import type { ConversationSnapshot } from '@deepseek-ai/dsh-client-runtime/clien
 import type { InputState } from '@deepseek-ai/dsh-client-ui-conversation/src/client/input/contract.ts'
 import { CurrentTabButton } from '../src/client/CurrentTabButton.tsx'
 import { ReferenceStore } from '../src/client/reference-store.ts'
-import type { TabDescriptor } from '@dsh-external/dsh-browser-bridge-protocol'
+import type { TabDescriptor } from '@ycp424c/dsh-browser-bridge-protocol'
 import type { ExtensionChannel } from '../src/client/extension-channel.ts'
 
 class FakeChannel {

@@ -8,7 +8,7 @@ import {
   bridgeError,
   newRequestId,
   type BridgeErrorCode,
-} from '@dsh-external/dsh-browser-bridge-protocol'
+} from '@ycp424c/dsh-browser-bridge-protocol'
 
 export interface ExtensionChannelEnv {
   /** `document.referrer` of the embedding page. */

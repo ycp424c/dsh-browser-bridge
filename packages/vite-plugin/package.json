@@ -1,5 +1,5 @@
 {
-  "name": "@dsh-external/dsh-browser-bridge-vite",
+  "name": "@ycp424c/dsh-browser-bridge-vite",
   "description": "Vite plugin that injects the DSH browser bridge page runtime",
   "version": "0.1.0",
   "type": "module",
@@ -25,7 +25,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@dsh-external/dsh-browser-bridge-page-runtime": "workspace:^",
+    "@ycp424c/dsh-browser-bridge-page-runtime": "workspace:^",
     "zod": "^4.4.3"
   },
   "peerDependencies": {
@@ -40,7 +40,7 @@
   "license": "BSD-3-Clause",
   "repository": {
     "type": "git",
-    "url": "https://github.com/dsh-external/dsh-browser-bridge.git"
+    "url": "https://github.com/ycp424c/dsh-browser-bridge.git"
   },
   "engines": {
     "node": "^22.19.0 || >=24.0.0"

@@ -1,7 +1,7 @@
 /**
  * Short-lived, single-use pairing nonces bound to one exact extension origin.
  */
-import { bridgeError, newPairingNonce, type PairingNonce } from '@dsh-external/dsh-browser-bridge-protocol'
+import { bridgeError, newPairingNonce, type PairingNonce } from '@ycp424c/dsh-browser-bridge-protocol'
 
 export interface PairingStoreOptions {
   now?: () => number

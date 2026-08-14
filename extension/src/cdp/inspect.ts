@@ -2,7 +2,7 @@
  * `browser_inspect`: attributes, text, computed style, geometry, and
  * visibility for a referenced element or a selector under the main document.
  */
-import { bridgeError, type ElementRef } from '@dsh-external/dsh-browser-bridge-protocol'
+import { bridgeError, type ElementRef } from '@ycp424c/dsh-browser-bridge-protocol'
 import type { TabSession } from './session-manager.ts'
 
 export interface InspectResult {

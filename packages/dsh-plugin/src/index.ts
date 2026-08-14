@@ -1,5 +1,5 @@
 /**
- * @dsh-external/dsh-browser-bridge — external DSH plugin, host half.
+ * @ycp424c/dsh-browser-bridge — external DSH plugin, host half.
  * Owns the pairing endpoint, the authenticated WebSocket bridge, prompt
  * marker consumption, and turn-scoped browser tools.
  */
@@ -17,7 +17,7 @@ import { TargetCoordinator } from './targets/coordinator.ts'
 import { ViteTargetBroker } from './vite/broker.ts'
 import { createViteRoutes } from './vite/routes.ts'
 
-export const name = '@dsh-external/dsh-browser-bridge'
+export const name = '@ycp424c/dsh-browser-bridge'
 
 export const inject = ['webServer', 'attachments', 'llm']
 

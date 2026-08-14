@@ -1,4 +1,4 @@
-# @dsh-external/dsh-browser-bridge
+# @ycp424c/dsh-browser-bridge
 
 External DSH plugin (host + client) for the DSH browser bridge. The host
 half owns the Chrome extension bridge (pairing, grants, turn-scoped tools)

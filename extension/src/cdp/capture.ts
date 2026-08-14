@@ -4,7 +4,7 @@
  * cookies, or stack-local values; buffers start empty on attach and are
  * cleared on detach.
  */
-import { bridgeError } from '@dsh-external/dsh-browser-bridge-protocol'
+import { bridgeError } from '@ycp424c/dsh-browser-bridge-protocol'
 import type { ConsoleRow, NetworkRow, TabSession } from './session-manager.ts'
 import { resolveNode } from './inspect.ts'
 

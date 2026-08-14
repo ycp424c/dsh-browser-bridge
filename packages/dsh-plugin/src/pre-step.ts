@@ -7,7 +7,7 @@
  */
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { createUserMessage, type UserMessage } from '@deepseek-ai/dsh-llm'
-import { extractMarkers, type BrowserTargetDescriptor } from '@dsh-external/dsh-browser-bridge-protocol'
+import { extractMarkers, type BrowserTargetDescriptor } from '@ycp424c/dsh-browser-bridge-protocol'
 import type { GrantRecord } from './bridge/grant-store.ts'
 import type { TargetCoordinator } from './targets/coordinator.ts'
 import type { ActiveTurn } from './tools/register.ts'

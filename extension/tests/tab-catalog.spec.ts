@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { TabDescriptor } from '@dsh-external/dsh-browser-bridge-protocol'
+import type { TabDescriptor } from '@ycp424c/dsh-browser-bridge-protocol'
 import { TabCatalog, type TabsApi } from '../src/tabs/catalog.ts'
 
 class FakeTabs implements TabsApi {

@@ -12,7 +12,7 @@ import {
   PROTOCOL_VERSION,
   type BridgeFrame,
   type PairingNonce,
-} from '@dsh-external/dsh-browser-bridge-protocol'
+} from '@ycp424c/dsh-browser-bridge-protocol'
 
 /** Socket face driven by the client; the real transport wraps a `ws`-style socket. */
 export interface BridgeSocket {

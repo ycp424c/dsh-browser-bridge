@@ -12,7 +12,7 @@ import { performAction, type ActAction } from '../src/cdp/act.ts'
 import { navigatePage, type NavigateArgs } from '../src/cdp/navigate.ts'
 import { waitForCondition, type WaitCondition } from '../src/cdp/wait.ts'
 import { captureScreenshot } from '../src/cdp/capture.ts'
-import { bridgeError, type BrowserOperation, type GrantId, type JsonValue } from '@dsh-external/dsh-browser-bridge-protocol'
+import { bridgeError, type BrowserOperation, type GrantId, type JsonValue } from '@ycp424c/dsh-browser-bridge-protocol'
 import type { BridgeClientState } from '../src/bridge/client.ts'
 import type { ToolExecutor } from '../src/bridge/router.ts'
 

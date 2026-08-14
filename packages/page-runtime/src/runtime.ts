@@ -9,7 +9,7 @@ import {
   VITE_PAGE_PROTOCOL_VERSION,
   type JsonValue,
   type TargetId,
-} from '@dsh-external/dsh-browser-bridge-protocol'
+} from '@ycp424c/dsh-browser-bridge-protocol'
 import { Activator } from './activation.ts'
 import { normalizeDshOrigin, type PageRuntimeConfig } from './config.ts'
 import { createHmrManager } from './hmr.ts'

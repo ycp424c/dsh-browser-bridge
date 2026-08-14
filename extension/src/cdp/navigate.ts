@@ -3,7 +3,7 @@
  * reload. Every navigation arms an expected-navigation window so the
  * resulting main-frame transition is authorized and its URL recorded.
  */
-import { bridgeError } from '@dsh-external/dsh-browser-bridge-protocol'
+import { bridgeError } from '@ycp424c/dsh-browser-bridge-protocol'
 import type { TabSession } from './session-manager.ts'
 
 export interface NavigateResult {

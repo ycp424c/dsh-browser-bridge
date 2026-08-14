@@ -1,5 +1,5 @@
 {
-  "name": "@dsh-external/dsh-browser-bridge-extension",
+  "name": "@ycp424c/dsh-browser-bridge-extension",
   "description": "Chrome MV3 side panel extension for the DSH browser bridge",
   "version": "0.1.0",
   "private": true,
@@ -17,7 +17,7 @@
     "react-dom": "^19.1.0"
   },
   "devDependencies": {
-    "@dsh-external/dsh-browser-bridge-protocol": "workspace:^",
+    "@ycp424c/dsh-browser-bridge-protocol": "workspace:^",
     "@tailwindcss/vite": "^4.1.11",
     "@types/chrome": "^0.0.287",
     "@types/react": "^19.1.8",
@@ -39,7 +39,7 @@
   "license": "BSD-3-Clause",
   "repository": {
     "type": "git",
-    "url": "https://github.com/dsh-external/dsh-browser-bridge.git"
+    "url": "https://github.com/ycp424c/dsh-browser-bridge.git"
   },
   "engines": {
     "node": "^22.19.0 || >=24.0.0"

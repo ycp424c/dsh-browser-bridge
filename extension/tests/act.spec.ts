@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { ElementRef } from '@dsh-external/dsh-browser-bridge-protocol'
+import { ElementRef } from '@ycp424c/dsh-browser-bridge-protocol'
 import type { TabSession } from '../src/cdp/session-manager.ts'
 import { NodeRegistry } from '../src/cdp/nodes.ts'
 import { click, focus, hover, performAction, press, scroll, select, typeText, type ActAction } from '../src/cdp/act.ts'

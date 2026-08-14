@@ -6,7 +6,7 @@ import {
   type BrowserTargetDescriptor,
   type JsonValue,
   type RequestId,
-} from '@dsh-external/dsh-browser-bridge-protocol'
+} from '@ycp424c/dsh-browser-bridge-protocol'
 import { GrantStore } from '../src/bridge/grant-store.ts'
 import { TargetCoordinator } from '../src/targets/coordinator.ts'
 import { ProviderRegistry } from '../src/targets/provider-registry.ts'

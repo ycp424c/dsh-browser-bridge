@@ -5,7 +5,7 @@
  * id, a copied target, the session, and a display label; entries expire
  * after 10 minutes and are capped at 100 per session.
  */
-import { newGrantHandle, type GrantHandle } from '@dsh-external/dsh-browser-bridge-protocol'
+import { newGrantHandle, type GrantHandle } from '@ycp424c/dsh-browser-bridge-protocol'
 
 export interface TargetReference<T> {
   ref: GrantHandle

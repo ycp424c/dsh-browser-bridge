@@ -3,14 +3,14 @@
  * public config and wires the official Vite HMR events. The internal id
  * carries a null byte so no file on disk can collide with it.
  */
-import type { PageRuntimeConfig } from '@dsh-external/dsh-browser-bridge-page-runtime'
+import type { PageRuntimeConfig } from '@ycp424c/dsh-browser-bridge-page-runtime'
 import { serializeConfig } from './serialize.ts'
 
 export const VIRTUAL_RUNTIME_ID = 'virtual:dsh-browser-bridge/runtime'
 export const VIRTUAL_RUNTIME_INTERNAL_ID = '\0virtual:dsh-browser-bridge/runtime'
 
 export function runtimeModuleSource(config: PageRuntimeConfig): string {
-  return `import { startPageRuntime } from '@dsh-external/dsh-browser-bridge-page-runtime'
+  return `import { startPageRuntime } from '@ycp424c/dsh-browser-bridge-page-runtime'
 
 const runtime = startPageRuntime(${serializeConfig(config)})
 

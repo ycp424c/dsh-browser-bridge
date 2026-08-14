@@ -15,7 +15,7 @@ import {
   type ViteBrowserTargetDescriptor,
   type ViteHostToPageFrame,
   type VitePageToHostFrame,
-} from '@dsh-external/dsh-browser-bridge-protocol'
+} from '@ycp424c/dsh-browser-bridge-protocol'
 import { toBridgeError } from '../tools/dispatcher.ts'
 
 /** Minimal WebSocket face (the real `WebSocket` satisfies it). */

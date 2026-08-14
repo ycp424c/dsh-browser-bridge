@@ -51,11 +51,11 @@ jobs:
 
       - name: Package dry-runs
         run: |
-          pnpm --filter @dsh-external/dsh-browser-bridge pack --dry-run
-          pnpm --filter @dsh-external/dsh-browser-bridge-protocol pack --dry-run
+          pnpm --filter @ycp424c/dsh-browser-bridge pack --dry-run
+          pnpm --filter @ycp424c/dsh-browser-bridge-protocol pack --dry-run
 
       - name: Extension zip
-        run: pnpm --filter @dsh-external/dsh-browser-bridge-extension zip
+        run: pnpm --filter @ycp424c/dsh-browser-bridge-extension zip
 
       - name: Install Chromium (full binary, repo-local cache)
         run: pnpm exec playwright install chromium

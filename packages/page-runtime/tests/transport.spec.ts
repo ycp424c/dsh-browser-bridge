@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   VITE_PAGE_PROTOCOL_VERSION,
   type ViteBrowserTargetDescriptor,
-} from '@dsh-external/dsh-browser-bridge-protocol'
+} from '@ycp424c/dsh-browser-bridge-protocol'
 import { PageSocket, type PageDispatcher, type PageWebSocket } from '../src/transport/socket.ts'
 import { probeLocalDsh } from '../src/probe.ts'
 
