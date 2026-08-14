@@ -94,20 +94,26 @@ describe('browser tool definitions', () => {
     }
   })
 
-  it('browser_inspect requires ref or selector', () => {
+  it('browser_inspect requires ref, selector, or targets', () => {
     const inspect = createBrowserTools(makeDeps([])).find(tool => tool.name === 'browser_inspect')!
     const parameters = inspect.parameters as { oneOf: unknown[] }
-    expect(parameters.oneOf).toHaveLength(2)
+    expect(parameters.oneOf).toHaveLength(3)
     expect(JSON.stringify(parameters.oneOf)).toContain('ref')
     expect(JSON.stringify(parameters.oneOf)).toContain('selector')
+    expect(JSON.stringify(parameters.oneOf)).toContain('targets')
   })
 
-  it('browser_act uses a discriminated action', () => {
+  it('browser_act uses a discriminated action (singular) or an actions batch', () => {
     const act = createBrowserTools(makeDeps([])).find(tool => tool.name === 'browser_act')!
-    const parameters = act.parameters as { properties: { action: { oneOf: Array<{ properties: { kind: { const: string } } }> } }; required: string[] }
-    expect(parameters.required).toContain('action')
+    const parameters = act.parameters as {
+      properties: { action: { oneOf: Array<{ properties: { kind: { const: string } } }> } }
+      oneOf: unknown[]
+    }
+    expect(parameters.oneOf).toHaveLength(2)
+    expect(JSON.stringify(parameters.oneOf)).toContain('"action"')
+    expect(JSON.stringify(parameters.oneOf)).toContain('"actions"')
     const kinds = parameters.properties.action.oneOf.map(schema => schema.properties.kind.const)
-    expect(kinds).toEqual(['click', 'type', 'select', 'hover', 'focus', 'press', 'scroll'])
+    expect(kinds).toEqual(['click', 'type', 'fill', 'select', 'hover', 'focus', 'press', 'scroll'])
   })
 
   it('browser_wait uses a discriminated condition', () => {
@@ -122,16 +128,116 @@ describe('browser tool definitions', () => {
     expect(JSON.stringify(generation)).toContain('"required":["kind","after"]')
   })
 
-  it('declares reads concurrency-safe and writes exclusive', () => {
+  it('declares only stateless reads concurrency-safe; inspect is exclusive after the DOM node race fix', () => {
     const tools = createBrowserTools(makeDeps([]))
-    const reads = new Set(['browser_observe', 'browser_inspect', 'browser_screenshot', 'browser_console', 'browser_network'])
+    // observe/screenshot/console/network are pure stateless reads. inspect
+    // resolves DOM nodes and was revoked from the concurrent set after the
+    // parallel-inspect frontend-node race (browser_inspect is NOT declared).
+    const reads = new Set(['browser_observe', 'browser_screenshot', 'browser_console', 'browser_network'])
     for (const tool of tools) {
       if (reads.has(tool.name)) {
-        expect(tool.isConcurrencySafe?.({})).toBe(true)
+        expect(tool.isConcurrencySafe?.({}), `${tool.name} should be concurrency-safe`).toBe(true)
       } else {
-        expect(tool.isConcurrencySafe).toBeUndefined()
+        expect(tool.isConcurrencySafe, `${tool.name} must not be marked concurrency-safe`).toBeUndefined()
       }
     }
+  })
+
+  it('browser_inspect supports batch targets in one call', () => {
+    const inspect = createBrowserTools(makeDeps([])).find(tool => tool.name === 'browser_inspect')!
+    const parameters = inspect.parameters as { properties: { targets: { items: unknown; maxItems: number } }; oneOf: unknown[] }
+    expect(parameters.properties.targets).toMatchObject({ type: 'array', maxItems: 20 })
+    expect(parameters.oneOf).toHaveLength(3)
+    expect(JSON.stringify(parameters.oneOf)).toContain('"targets"')
+  })
+
+  it('browser_act schema covers fill, batch actions, and postconditions', () => {
+    const act = createBrowserTools(makeDeps([])).find(tool => tool.name === 'browser_act')!
+    const parameters = act.parameters as {
+      properties: {
+        action: { oneOf: Array<{ properties: { kind: { const: string } } }> }
+        actions: { items: unknown; maxItems: number }
+        expect: { oneOf: Array<{ properties: { kind: { const: string } } }> }
+      }
+    }
+    const kinds = parameters.properties.action.oneOf.map(schema => schema.properties.kind.const)
+    expect(kinds).toEqual(['click', 'type', 'fill', 'select', 'hover', 'focus', 'press', 'scroll'])
+    expect(parameters.properties.actions).toMatchObject({ type: 'array', maxItems: 20 })
+    expect(parameters.properties.expect).toBeDefined()
+    const expectKinds = parameters.properties.expect.oneOf.map(schema => schema.properties.kind.const)
+    expect(expectKinds).toEqual(['value', 'checked', 'visible', 'text', 'url'])
+  })
+
+  it('browser_act type documents append/replace behavior and fill as the overwrite path', () => {
+    const act = createBrowserTools(makeDeps([])).find(tool => tool.name === 'browser_act')!
+    const json = JSON.stringify(act.parameters)
+    expect(json).toContain('append')
+    expect(json).toContain('replace')
+    expect(json).toContain('fill')
+  })
+
+  it('value and url postconditions require an equals or contains assertion', () => {
+    const act = createBrowserTools(makeDeps([])).find(tool => tool.name === 'browser_act')!
+    const parameters = act.parameters as {
+      properties: { expect: { oneOf: Array<{ properties: { kind: { const: string } }; oneOf: unknown[] }> } }
+    }
+    const expectKinds = new Map(parameters.properties.expect.oneOf.map(schema => [schema.properties.kind.const, schema]))
+    for (const kind of ['value', 'url']) {
+      const schema = expectKinds.get(kind)!
+      expect(JSON.stringify(schema.oneOf)).toContain('equals')
+      expect(JSON.stringify(schema.oneOf)).toContain('contains')
+    }
+  })
+
+  it('Vite-only turns keep the legacy surface (no fill/batch/expect/targets/text/compact, plain click)', () => {
+    const deps = makeDeps([])
+    deps.providers = new Set(['vite'])
+    const tools = createBrowserTools(deps)
+    const act = tools.find(tool => tool.name === 'browser_act')!
+    const actJson = JSON.stringify(act.parameters)
+    expect(actJson).not.toContain('fill')
+    expect(actJson).not.toContain('actions')
+    expect(actJson).not.toContain('expect')
+    // The legacy click schema must match the Vite runtime's strict schema:
+    // no button/clickCount arguments it would reject.
+    const clickSchema = (act.parameters as {
+      properties: { action: { oneOf: Array<{ properties: Record<string, unknown> }> } }
+    }).properties.action.oneOf.find(schema => (schema.properties.kind as { const: string }).const === 'click')!
+    expect(clickSchema.properties.button).toBeUndefined()
+    expect(clickSchema.properties.clickCount).toBeUndefined()
+    const inspect = tools.find(tool => tool.name === 'browser_inspect')!
+    const inspectJson = JSON.stringify(inspect.parameters)
+    expect(inspectJson).not.toContain('targets')
+    const observe = tools.find(tool => tool.name === 'browser_observe')!
+    const observeJson = JSON.stringify(observe.parameters)
+    expect(observeJson).not.toContain('"text"')
+    expect(observeJson).not.toContain('compact')
+  })
+
+  it('mixed Chrome+Vite turns expose the legacy surface for every shared tool', () => {
+    const deps = makeDeps([])
+    deps.providers = new Set(['chrome-extension', 'vite'])
+    const tools = createBrowserTools(deps)
+    const act = tools.find(tool => tool.name === 'browser_act')!
+    expect(JSON.stringify(act.parameters)).not.toContain('actions')
+  })
+
+  it('browser_observe exposes text opt-in and compact mode', () => {
+    const observe = createBrowserTools(makeDeps([])).find(tool => tool.name === 'browser_observe')!
+    const parameters = observe.parameters as { properties: Record<string, unknown> }
+    expect(parameters.properties.text).toMatchObject({ type: 'boolean' })
+    expect(parameters.properties.compact).toMatchObject({ type: 'boolean' })
+    expect(JSON.stringify(observe.description)).toContain('text')
+  })
+
+  it('renders non-image outputs as compact JSON without pretty whitespace', () => {
+    const tools = createBrowserTools(makeDeps([]))
+    const observe = tools.find(tool => tool.name === 'browser_observe')!
+    const blocks = observe.output.render({}, { page: { url: 'http://x/' }, nodes: [{ role: 'button' }] })
+    const text = (blocks[0] as { text: string }).text
+    expect(text).toBe(JSON.stringify({ page: { url: 'http://x/' }, nodes: [{ role: 'button' }] }))
+    expect(text).not.toContain('\n')
+    expect(text).not.toContain('  ')
   })
 
   it('omits page only when exactly one page is attached', async () => {

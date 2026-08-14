@@ -14,6 +14,7 @@ import type { ToolDefinition, ToolExecution } from '@deepseek-ai/dsh-tools'
 import {
   bridgeErrorSchema,
   type BrowserOperation,
+  type BrowserProviderKind,
   type BrowserTargetDescriptor,
   type GrantId,
   type JsonValue,
@@ -43,6 +44,24 @@ export interface BrowserToolsDeps {
     model: string,
     signal: AbortSignal,
   ): Promise<{ inputModalities?: readonly ('text' | 'image')[] }>
+  /**
+   * Providers attached this turn. Advanced argument surfaces (fill, batch
+   * actions, postconditions, batch targets, observe text/compact) are exposed
+   * ONLY when every attached target is a Chrome-extension page; the Vite
+   * provider validates strict schemas and keeps its original surface.
+   * Undefined (tests) means the full Chrome surface.
+   */
+  providers?: ReadonlySet<BrowserProviderKind>
+}
+
+/**
+ * Whether the full (Chrome) argument surface may be advertised. A turn that
+ * includes any Vite page shares one schema across aliases, so the least
+ * capable provider wins: new arguments are only exposed for Chrome-only
+ * turns, keeping the Vite page-runtime schema gap closed.
+ */
+function supportsAdvancedSurface(deps: BrowserToolsDeps): boolean {
+  return deps.providers === undefined || (deps.providers.has('chrome-extension') && !deps.providers.has('vite'))
 }
 
 /** Every model-facing browser tool name, keyed by wire operation. */
@@ -104,7 +123,155 @@ const SCREENSHOT_MEDIA_TYPES: ReadonlySet<ImageMediaType> = new Set([
 ])
 
 const JSON_TEXT_RENDER = (_args: unknown, value: JsonValue): ContentBlock[] => [
-  { type: 'text', text: JSON.stringify(value, null, 2) },
+  // Compact single-line JSON: no pretty whitespace, machine-readable, and
+  // minimal token cost in tool history.
+  { type: 'text', text: JSON.stringify(value) },
+]
+
+/**
+ * Discriminated action schemas shared by the singular `action` property and
+ * the sequential `actions` batch. `type` appends by default; pass
+ * `replace: true` to overwrite the existing text. `fill` reliably overwrites
+ * any input/textarea/select (including datetime-local) through the native
+ * value setter plus input/change events, and must be used when `type` cannot
+ * change the field value.
+ */
+const ACT_ACTION_SCHEMAS: readonly Record<string, unknown>[] = [
+  {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      kind: { const: 'click' },
+      ref: { type: 'string', description: 'Element reference from browser_observe.' },
+      selector: { type: 'string', description: 'CSS selector under the main document.' },
+      button: { enum: ['left', 'right', 'middle'] },
+      clickCount: { type: 'integer', minimum: 1, maximum: 10 },
+    },
+    required: ['kind'],
+  },
+  {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      kind: { const: 'type' },
+      ref: { type: 'string', description: 'Element reference from browser_observe.' },
+      selector: { type: 'string', description: 'CSS selector under the main document.' },
+      text: { type: 'string', description: 'Text to insert into a text field (appends unless replace is true).' },
+      replace: { type: 'boolean', description: 'true replaces the existing value; false (default) appends to it.' },
+    },
+    required: ['kind', 'text'],
+  },
+  {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      kind: { const: 'fill' },
+      ref: { type: 'string', description: 'Element reference from browser_observe.' },
+      selector: { type: 'string', description: 'CSS selector under the main document.' },
+      value: { type: 'string', description: 'New value; overwrites the field (text, textarea, select, datetime-local, date, etc.).' },
+    },
+    required: ['kind', 'value'],
+  },
+  {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      kind: { const: 'select' },
+      ref: { type: 'string' },
+      selector: { type: 'string' },
+      value: { type: 'string' },
+    },
+    required: ['kind', 'value'],
+  },
+  {
+    type: 'object',
+    additionalProperties: false,
+    properties: { kind: { const: 'hover' }, ref: { type: 'string' }, selector: { type: 'string' } },
+    required: ['kind'],
+  },
+  {
+    type: 'object',
+    additionalProperties: false,
+    properties: { kind: { const: 'focus' }, ref: { type: 'string' }, selector: { type: 'string' } },
+    required: ['kind'],
+  },
+  {
+    type: 'object',
+    additionalProperties: false,
+    properties: { kind: { const: 'press' }, key: { type: 'string' } },
+    required: ['kind', 'key'],
+  },
+  {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      kind: { const: 'scroll' },
+      ref: { type: 'string' },
+      selector: { type: 'string' },
+      deltaX: { type: 'number' },
+      deltaY: { type: 'number' },
+    },
+    required: ['kind'],
+  },
+]
+
+/**
+ * Legacy action set for providers that do not implement fill (the Vite
+ * page-runtime validates strict schemas and keeps its original surface):
+ * fill is dropped, and click reverts to the original ref/selector-only shape
+ * because the Vite runtime does not accept button/clickCount either.
+ */
+const LEGACY_ACT_ACTION_SCHEMAS: readonly Record<string, unknown>[] = ACT_ACTION_SCHEMAS
+  .filter(schema => (schema.properties as { kind: { const: string } }).kind.const !== 'fill')
+  .map(schema => {
+    if ((schema.properties as { kind: { const: string } }).kind.const !== 'click') return schema
+    const { button: _button, clickCount: _clickCount, ...rest } = schema.properties as Record<string, unknown>
+    return { ...schema, properties: rest }
+  })
+
+/**
+ * Bounded postcondition union polled after an action (or an actions batch)
+ * inside the SAME tool call. Sensitive values never appear in failure text.
+ */
+const POSTCONDITION_SCHEMAS: readonly Record<string, unknown>[] = [
+  {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      kind: { const: 'value' },
+      ref: { type: 'string' },
+      selector: { type: 'string' },
+      equals: { type: 'string' },
+      contains: { type: 'string' },
+    },
+    required: ['kind'],
+    oneOf: [{ required: ['equals'] }, { required: ['contains'] }],
+  },
+  {
+    type: 'object',
+    additionalProperties: false,
+    properties: { kind: { const: 'checked' }, ref: { type: 'string' }, selector: { type: 'string' }, equals: { type: 'boolean' } },
+    required: ['kind', 'equals'],
+  },
+  {
+    type: 'object',
+    additionalProperties: false,
+    properties: { kind: { const: 'visible' }, ref: { type: 'string' }, selector: { type: 'string' }, equals: { type: 'boolean' } },
+    required: ['kind', 'equals'],
+  },
+  {
+    type: 'object',
+    additionalProperties: false,
+    properties: { kind: { const: 'text' }, ref: { type: 'string' }, selector: { type: 'string' }, contains: { type: 'string' } },
+    required: ['kind', 'contains'],
+  },
+  {
+    type: 'object',
+    additionalProperties: false,
+    properties: { kind: { const: 'url' }, equals: { type: 'string' }, contains: { type: 'string' } },
+    required: ['kind'],
+    oneOf: [{ required: ['equals'] }, { required: ['contains'] }],
+  },
 ]
 
 /** Resolve and authorize one page operation without dispatching browser I/O. */
@@ -187,46 +354,80 @@ async function assertImageCapableRoute(deps: BrowserToolsDeps, exec: ToolExecuti
 }
 
 const TOOL_BUILDERS: Record<BrowserOperation, ToolBuilder> = {
-    observe: deps => ({
-      name: 'browser_observe',
-      description: 'Observe the attached page: identity, lifecycle state, semantic DOM, and short-lived element references.',
-      parameters: {
-        type: 'object',
-        additionalProperties: false,
-        properties: {
-          page: PAGE_PROPERTY,
-          maxNodes: { type: 'integer', minimum: 1, maximum: 500, description: 'Cap on returned element nodes.' },
-          maxChars: { type: 'integer', minimum: 100, maximum: 100_000, description: 'Cap on returned text characters.' },
+    observe: deps => {
+      const advanced = supportsAdvancedSurface(deps)
+      const properties: Record<string, unknown> = {
+        page: PAGE_PROPERTY,
+        maxNodes: { type: 'integer', minimum: 1, maximum: 500, description: 'Cap on returned element nodes.' },
+        maxChars: { type: 'integer', minimum: 100, maximum: 100_000, description: 'Cap on returned text characters (only when text:true).' },
+      }
+      if (advanced) {
+        properties.text = { type: 'boolean', description: 'Include a joined text digest derived from the emitted nodes (off by default; compact mode never includes it).' }
+        properties.compact = { type: 'boolean', description: 'Lower the default output budget (fewer nodes, no text) for minimal contexts.' }
+      }
+      return {
+        name: 'browser_observe',
+        description: advanced
+          ? 'Observe the attached page: identity, lifecycle state, semantic DOM, and short-lived element references. Duplicate inline/static text is filtered; pass text:true for a joined text digest (off by default — nodes carry the semantic content).'
+          : 'Observe the attached page: identity, lifecycle state, semantic DOM, and short-lived element references.',
+        parameters: {
+          type: 'object',
+          additionalProperties: false,
+          properties,
         },
-      },
-      output: {
-        schema: { type: 'object', additionalProperties: true },
-        render: JSON_TEXT_RENDER,
-      },
-      isConcurrencySafe: () => true,
-      execute: execute(deps, 'observe'),
-    }),
-    inspect: deps => ({
-      name: 'browser_inspect',
-      description: 'Inspect a referenced element or selector: attributes, text, computed style, geometry, and visibility.',
-      parameters: {
-        type: 'object',
-        additionalProperties: false,
-        properties: {
-          page: PAGE_PROPERTY,
-          ref: { type: 'string', description: 'Element reference from browser_observe.' },
-          selector: { type: 'string', description: 'CSS selector under the main document.' },
-          properties: { type: 'array', items: { type: 'string' }, description: 'Requested computed CSS property names.' },
+        output: {
+          schema: { type: 'object', additionalProperties: true },
+          render: JSON_TEXT_RENDER,
         },
-        oneOf: [{ required: ['ref'] }, { required: ['selector'] }],
-      },
-      output: {
-        schema: { type: 'object', additionalProperties: true },
-        render: JSON_TEXT_RENDER,
-      },
-      isConcurrencySafe: () => true,
-      execute: execute(deps, 'inspect'),
-    }),
+        isConcurrencySafe: () => true,
+        execute: execute(deps, 'observe'),
+      }
+    },
+    inspect: deps => {
+      const advanced = supportsAdvancedSurface(deps)
+      const properties: Record<string, unknown> = {
+        page: PAGE_PROPERTY,
+        ref: { type: 'string', description: 'Element reference from browser_observe.' },
+        selector: { type: 'string', description: 'CSS selector under the main document.' },
+        properties: { type: 'array', items: { type: 'string' }, description: 'Requested computed CSS property names (only these are returned).' },
+      }
+      if (advanced) {
+        properties.targets = {
+          type: 'array',
+          minItems: 1,
+          maxItems: 20,
+          description: 'Batch of targets inspected sequentially in one call; each reports success or failure independently.',
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              ref: { type: 'string', description: 'Element reference from browser_observe.' },
+              selector: { type: 'string', description: 'CSS selector under the main document.' },
+            },
+            oneOf: [{ required: ['ref'] }, { required: ['selector'] }],
+          },
+        }
+      }
+      return {
+        name: 'browser_inspect',
+        description: advanced
+          ? 'Inspect a referenced element, selector, or a batch of `targets` in one call: attributes, text, form state (value, checked, selected), geometry, and visibility. Password/secret fields return no plaintext value. Computed style is returned only for explicitly requested `properties`. Not concurrency-safe: DOM reads are exclusive per call.'
+          : 'Inspect a referenced element or selector: attributes, text, computed style, geometry, and visibility.',
+        parameters: {
+          type: 'object',
+          additionalProperties: false,
+          properties,
+          oneOf: advanced
+            ? [{ required: ['ref'] }, { required: ['selector'] }, { required: ['targets'] }]
+            : [{ required: ['ref'] }, { required: ['selector'] }],
+        },
+        output: {
+          schema: { type: 'object', additionalProperties: true },
+          render: JSON_TEXT_RENDER,
+        },
+        execute: execute(deps, 'inspect'),
+      }
+    },
     screenshot: deps => ({
       name: 'browser_screenshot',
       description: 'Capture the current viewport or a referenced element as a PNG screenshot. Requires the current model to accept image input.',
@@ -278,36 +479,61 @@ const TOOL_BUILDERS: Record<BrowserOperation, ToolBuilder> = {
         return { url: shot.url, width: shot.width, height: shot.height, attachment }
       },
     }),
-    act: deps => ({
-      name: 'browser_act',
-      description: 'Interact with the page: click, type, select, hover, focus, press keys, or scroll.',
-      parameters: {
-        type: 'object',
-        additionalProperties: false,
-        properties: {
-          page: PAGE_PROPERTY,
-          action: {
+    act: deps => {
+      const advanced = supportsAdvancedSurface(deps)
+      if (!advanced) {
+        // Vite-inclusive turns keep the legacy surface: the page-runtime
+        // validates strict schemas and does not implement fill/batch/expect.
+        return {
+          name: 'browser_act',
+          description: 'Interact with the page: click, type, select, hover, focus, press keys, or scroll.',
+          parameters: {
             type: 'object',
             additionalProperties: false,
-            oneOf: [
-              { type: 'object', properties: { kind: { const: 'click' }, ref: { type: 'string' }, selector: { type: 'string' } }, required: ['kind'] },
-              { type: 'object', properties: { kind: { const: 'type' }, ref: { type: 'string' }, selector: { type: 'string' }, text: { type: 'string' }, replace: { type: 'boolean' } }, required: ['kind', 'text'] },
-              { type: 'object', properties: { kind: { const: 'select' }, ref: { type: 'string' }, selector: { type: 'string' }, value: { type: 'string' } }, required: ['kind', 'value'] },
-              { type: 'object', properties: { kind: { const: 'hover' }, ref: { type: 'string' }, selector: { type: 'string' } }, required: ['kind'] },
-              { type: 'object', properties: { kind: { const: 'focus' }, ref: { type: 'string' }, selector: { type: 'string' } }, required: ['kind'] },
-              { type: 'object', properties: { kind: { const: 'press' }, key: { type: 'string' } }, required: ['kind', 'key'] },
-              { type: 'object', properties: { kind: { const: 'scroll' }, ref: { type: 'string' }, selector: { type: 'string' }, deltaX: { type: 'number' }, deltaY: { type: 'number' } }, required: ['kind'] },
-            ],
+            properties: {
+              page: PAGE_PROPERTY,
+              action: {
+                type: 'object',
+                additionalProperties: false,
+                oneOf: LEGACY_ACT_ACTION_SCHEMAS,
+              },
+            },
+            required: ['action'],
           },
+          output: {
+            schema: { type: 'object', additionalProperties: true },
+            render: JSON_TEXT_RENDER,
+          },
+          execute: execute(deps, 'act'),
+        }
+      }
+      return {
+        name: 'browser_act',
+        description: 'Interact with the page: click, type (appends to a text field, or replaces with replace:true), fill (reliably overwrites input/textarea/select values including datetime-local via the native setter), select, hover, focus, press keys, or scroll. Pass `actions` to run up to 20 actions sequentially in one call with per-item results, and `expect` to poll a postcondition after the action(s) inside the same call.',
+        parameters: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            page: PAGE_PROPERTY,
+            action: { type: 'object', additionalProperties: false, oneOf: [...ACT_ACTION_SCHEMAS] },
+            actions: {
+              type: 'array',
+              minItems: 1,
+              maxItems: 20,
+              description: 'Sequential batch of actions executed in one call on the same tab; stops at the first failure (fail-fast) and reports per-item results with the failed index.',
+              items: { type: 'object', additionalProperties: false, oneOf: [...ACT_ACTION_SCHEMAS] },
+            },
+            expect: { type: 'object', additionalProperties: false, oneOf: [...POSTCONDITION_SCHEMAS] },
+          },
+          oneOf: [{ required: ['action'] }, { required: ['actions'] }],
         },
-        required: ['action'],
-      },
-      output: {
-        schema: { type: 'object', additionalProperties: true },
-        render: JSON_TEXT_RENDER,
-      },
-      execute: execute(deps, 'act'),
-    }),
+        output: {
+          schema: { type: 'object', additionalProperties: true },
+          render: JSON_TEXT_RENDER,
+        },
+        execute: execute(deps, 'act'),
+      }
+    },
     navigate: deps => ({
       name: 'browser_navigate',
       description: 'Navigate the attached tab: open an absolute HTTP(S) URL, go back or forward, or reload.',

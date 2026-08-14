@@ -6,9 +6,15 @@ import { captureScreenshot } from '../src/cdp/capture.ts'
 
 const FIXTURE_URL = 'http://127.0.0.1:4173/'
 
-function fakeSession(): { session: TabSession; send: ReturnType<typeof vi.fn>; refs: NodeRegistry } {
+function fakeSession(): { session: TabSession; send: ReturnType<typeof vi.fn>; sessionSend: ReturnType<typeof vi.fn>; refs: NodeRegistry } {
   const refs = new NodeRegistry({ randomId: () => ElementRef('e1') })
   const send = vi.fn()
+  // Best-effort releases (Runtime.releaseObject) never consume the business
+  // command queue, mirroring the production contract.
+  const sessionSend = vi.fn((method: string, params?: object) => {
+    if (method === 'Runtime.releaseObject') return Promise.resolve({})
+    return send(method, params)
+  })
   return {
     session: {
       tabId: 7,
@@ -23,11 +29,16 @@ function fakeSession(): { session: TabSession; send: ReturnType<typeof vi.fn>; r
       expectNavigationWindow: null,
       expectNavigation: () => {},
       onMainFrameNavigated: () => {},
-      send,
+      send: sessionSend,
     } as unknown as TabSession,
     send,
+    sessionSend,
     refs,
   }
+}
+
+function callValue(value: unknown): Record<string, unknown> {
+  return { result: { value } }
 }
 
 describe('browser_screenshot', () => {
@@ -44,28 +55,25 @@ describe('browser_screenshot', () => {
     expect(JSON.stringify(result)).not.toContain('consoleEntries')
   })
 
-  it('clips to a referenced element', async () => {
+  it('clips to a referenced element via stable runtime resolution', async () => {
     const { session, send, refs } = fakeSession()
     refs.register(42, 'frame-1', 1)
-    send.mockResolvedValueOnce({ nodeIds: [100] })
-    send.mockResolvedValueOnce({
-      model: { content: [10, 20, 130, 20, 130, 52, 10, 52] },
-    })
+    send.mockResolvedValueOnce({ object: { objectId: 'obj' } }) // DOM.resolveNode by backend id
+    send.mockResolvedValueOnce(callValue({ x: 10, y: 20, width: 120, height: 32, visible: true }))
     send.mockResolvedValueOnce({ data: 'iVBORw0KGgo=' })
     const result = await captureScreenshot(session, { ref: 'e1' })
     expect(result).toMatchObject({ mimeType: 'image/png', data: 'iVBORw0KGgo=', url: FIXTURE_URL })
     const clipCall = send.mock.calls.find(call => call[0] === 'Page.captureScreenshot')
     expect((clipCall![1] as { clip: { x: number; y: number; width: number; height: number; scale: number } }).clip)
       .toEqual({ x: 10, y: 20, width: 120, height: 32, scale: 1 })
+    expect(send).not.toHaveBeenCalledWith('DOM.getBoxModel', expect.anything())
   })
 
-  it('rejects zero-area or off-document boxes as stale', async () => {
+  it('rejects zero-area boxes as stale', async () => {
     const { session, send, refs } = fakeSession()
     refs.register(42, 'frame-1', 1)
-    send.mockResolvedValueOnce({ nodeIds: [100] })
-    send.mockResolvedValueOnce({
-      model: { content: [0, 0, 0, 0, 0, 0, 0, 0] },
-    })
+    send.mockResolvedValueOnce({ object: { objectId: 'obj' } })
+    send.mockResolvedValueOnce(callValue({ x: 0, y: 0, width: 0, height: 0, visible: false }))
     await expect(captureScreenshot(session, { ref: 'e1' })).rejects.toMatchObject({ code: 'stale_element' })
   })
 

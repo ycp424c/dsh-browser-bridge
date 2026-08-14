@@ -85,10 +85,10 @@ DSH agent runtime
 
 | 工具 | 作用 |
 | --- | --- |
-| `browser_observe` | 返回页面身份、生命周期状态、语义化 DOM/无障碍内容，以及短生命周期的元素引用 |
-| `browser_inspect` | 查询指定元素（引用或选择器）的属性、文本、计算样式、几何信息与可见性 |
+| `browser_observe` | 返回页面身份、生命周期状态、语义化 DOM/无障碍内容，以及短生命周期的元素引用；默认不含整段文本（`text: true` 显式请求），过滤 InlineTextBox 与重复 StaticText |
+| `browser_inspect` | 查询指定元素（引用/选择器/批量 targets）的表单状态（value/checked/selected 等）、属性、文本、几何与可见性；计算样式仅在显式请求 `properties` 时返回；密码/secret 字段不泄漏明文 |
 | `browser_screenshot` | 截取当前视口或指定元素，并返回图片附件证据；仅当前模型明确支持图片输入时执行 |
-| `browser_act` | 点击、输入、选择、悬停、聚焦、按键、滚动 |
+| `browser_act` | 点击、输入（type 追加/`replace: true` 覆盖）、fill（原生 setter 可靠覆盖 input/textarea/select/datetime-local）、选择、悬停、聚焦、按键、滚动；可用 `actions` 批量顺序执行并附带 `expect` 后置条件 |
 | `browser_navigate` | 打开 HTTP(S) 地址、后退/前进、刷新 |
 | `browser_wait` | 等待元素、文本、URL、生命周期状态，或一段有界的页面稳定窗口 |
 | `browser_console` | 返回标签页被附加以来观察到的 console 错误与相关日志 |
@@ -214,9 +214,9 @@ export default defineConfig({
 
 | 工具 | Vite 支持 | 说明 |
 | --- | --- | --- |
-| `browser_observe` | ✅ | 有界语义 DOM 投影、ARIA、短生命周期引用 |
-| `browser_inspect` | ✅ | 属性/文本/白名单计算样式/几何/可见性，敏感值遮罩 |
-| `browser_act` | ✅ | click/type/select/focus/press/scroll；受控输入走原生 setter + input/change；hover 为合成事件（`synthetic: true, cssPseudoState: false`） |
+| `browser_observe` | ✅ | 有界语义 DOM 投影、ARIA、短生命周期引用；去重后的节点列表，`text` 按需返回 |
+| `browser_inspect` | ✅ | 表单状态/属性/文本/按需计算样式/几何/可见性，敏感值遮罩 |
+| `browser_act` | ✅ | click/type/fill/select/focus/press/scroll；受控输入走原生 setter + input/change；hover 为合成事件（`synthetic: true, cssPseudoState: false`） |
 | `browser_navigate` | ✅ | 仅同源 URL/前进/后退/刷新；跨 origin 在导航前拒绝 |
 | `browser_wait` | ✅ | selector/text/url/ready/稳定窗口/下一 generation |
 | `browser_console` | ✅ | 注入后的 console、window error、unhandledrejection，有界 200 条并带 generation |

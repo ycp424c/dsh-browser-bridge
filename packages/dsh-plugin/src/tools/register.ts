@@ -55,6 +55,9 @@ export function registerTurnTools(
       request: (grantId, operation, args, signal) => deps.coordinator.request(grantId, operation, args, signal),
       attachments: deps.attachments,
       resolveModelInfo: deps.resolveModelInfo,
+      // The advanced argument surface (fill/actions/expect/targets/text/
+      // compact) is exposed only when every attached target is Chrome.
+      providers: new Set(turn.pages.map(page => page.target.provider)),
     }))
   const disposers: Array<() => void> = []
   try {

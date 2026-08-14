@@ -10,6 +10,7 @@ export const BRIDGE_ERROR_CODES = [
   'stale_element', 'timeout', 'protocol_mismatch', 'permission_denied', 'internal',
   'dsh_unavailable', 'local_access_blocked', 'embedding_blocked',
   'target_disconnected', 'unsupported_operation',
+  'postcondition_failed', 'input_not_applied', 'invalid_value',
 ] as const
 
 export type BridgeErrorCode = typeof BRIDGE_ERROR_CODES[number]
@@ -54,4 +55,7 @@ export const BRIDGE_ERROR_RECOVERY: Record<BridgeErrorCode, string> = {
   embedding_blocked: 'The browser blocked embedding local DSH Web (CSP frame-src, frame-ancestors, or iframe policy); use the new-tab fallback or adjust the response headers.',
   target_disconnected: 'The target page disconnected and did not reconnect within the recovery window; reopen or reload the page and attach it again.',
   unsupported_operation: 'The target provider does not support this operation; use a Chrome-extension page for screenshots, network, or trusted input.',
+  postcondition_failed: 'A declared postcondition (value, checked, visible, text, or URL) was not satisfied within the bounded poll window; inspect the page and retry with a corrected action.',
+  input_not_applied: 'The text input was dispatched but the field value did not change (the page rejected the input); use fill to overwrite the value reliably.',
+  invalid_value: 'The supplied value is not valid for the target element (for example a select option that does not exist); supply an accepted value.',
 }

@@ -7,8 +7,8 @@ import { chromeSettingsStorage, DSH_ORIGIN_STORAGE_KEY, loadDshOrigin } from '..
 import { CdpSessionManager, type TabSession } from '../src/cdp/session-manager.ts'
 import { ChromeDebugger } from '../src/cdp/chrome-debugger.ts'
 import { observePage, type ObserveArgs } from '../src/cdp/observe.ts'
-import { inspectElement, type InspectArgs } from '../src/cdp/inspect.ts'
-import { performAction, type ActAction } from '../src/cdp/act.ts'
+import { inspect, type InspectArgs } from '../src/cdp/inspect.ts'
+import { performAct, type ActArgs } from '../src/cdp/act.ts'
 import { navigatePage, type NavigateArgs } from '../src/cdp/navigate.ts'
 import { waitForCondition, type WaitCondition } from '../src/cdp/wait.ts'
 import { captureScreenshot } from '../src/cdp/capture.ts'
@@ -43,9 +43,9 @@ export default defineBackground(() => {
         // signature, so the lossless conversion is explicit at the boundary.
         return (await observePage(session, (args ?? {}) as ObserveArgs)) as unknown as JsonValue
       case 'inspect':
-        return (await inspectElement(session, (args ?? {}) as InspectArgs)) as unknown as JsonValue
+        return (await inspect(session, (args ?? {}) as InspectArgs)) as unknown as JsonValue
       case 'act':
-        return (await performAction(session, (args as { action: ActAction }).action)) as unknown as JsonValue
+        return (await performAct(session, (args ?? {}) as ActArgs)) as unknown as JsonValue
       case 'navigate':
         return (await navigatePage(session, (args ?? {}) as NavigateArgs)) as unknown as JsonValue
       case 'wait':

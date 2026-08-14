@@ -6,7 +6,7 @@
  */
 import { bridgeError } from '@ycp424c/dsh-browser-bridge-protocol'
 import type { ConsoleRow, NetworkRow, TabSession } from './session-manager.ts'
-import { resolveNode } from './inspect.ts'
+import { elementRect, withResolvedObject } from './resolve.ts'
 
 export const EVIDENCE_BUFFER_SIZE = 200
 
@@ -146,23 +146,14 @@ export async function captureScreenshot(
 ): Promise<ScreenshotResult> {
   let clip: { x: number; y: number; width: number; height: number; scale: number } | undefined
   if (args.ref !== undefined || args.selector !== undefined) {
-    const nodeId = await resolveNode(session, {
-      ...(args.ref !== undefined ? { ref: args.ref } : {}),
-      ...(args.selector !== undefined ? { selector: args.selector } : {}),
-    })
-    const box = await session.send('DOM.getBoxModel', { nodeId })
-    const content = (box as { model?: { content?: number[] } }).model?.content
-    if (content === undefined || content.length < 8) {
-      throw bridgeError('stale_element', 'element has no layout box', false)
-    }
-    const x = Math.min(content[0]!, content[2]!, content[4]!, content[6]!)
-    const y = Math.min(content[1]!, content[3]!, content[5]!, content[7]!)
-    const width = Math.max(content[0]!, content[2]!, content[4]!, content[6]!) - x
-    const height = Math.max(content[1]!, content[3]!, content[5]!, content[7]!) - y
-    if (width <= 0 || height <= 0 || x < 0 || y < 0) {
+    // Stable runtime layout box (viewport CSS pixels) instead of a frontend
+    // node id: element screenshots cannot race parallel reads. The resolved
+    // object id is released once the rect has been read, on every path.
+    const rect = await withResolvedObject(session, args, (objectId) => elementRect(session, objectId))
+    if (!rect.visible || rect.width <= 0 || rect.height <= 0 || rect.x < 0 || rect.y < 0) {
       throw bridgeError('stale_element', 'element is off-document or has zero area', false)
     }
-    clip = { x, y, width, height, scale: 1 }
+    clip = { x: rect.x, y: rect.y, width: rect.width, height: rect.height, scale: 1 }
   }
   const response = await session.send('Page.captureScreenshot', {
     format: 'png',
