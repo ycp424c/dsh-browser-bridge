@@ -112,7 +112,26 @@ console 与 network 证据有界：从 debugger 附加时开始记录，随授�
 - 意外的跨域跳转会暂停进一步的写入（`navigation_requires_confirmation`），读取仍然可用，直到新的 prompt 显式附加新页面。
 - 附加的页面内容只作为**外部证据**注入模型，并被明确标注为证据而非指令。
 
-## 安装与运行
+## 通过 npm 安装
+
+插件已发布到 npm：`@ycp424c/dsh-browser-bridge`。适用于 DSH `0.0.1-rc.2+` 的 web profile：
+
+```bash
+# 1. 安装依赖（等价于在 profile 目录执行 pnpm add）
+dsh plugin add --profile web @ycp424c/dsh-browser-bridge
+
+# 2. 挂载插件：把包名追加到 ~/.dsh/profiles/web/package.json 的 bundles
+#    "dsh": { "profile": { "bundles": ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app", "@ycp424c/dsh-browser-bridge"] } }
+
+# 3. 重启
+dsh web
+```
+
+插件的 peerDependencies（`@deepseek-ai/cordis`、`@deepseek-ai/schemastery` 及 `@deepseek-ai/dsh-*`）由 DSH 本体提供，无需单独安装。
+
+浏览器扩展（`extension/`）不发布 npm；需要扩展能力的场景仍按下方源码方式构建并“加载已解压的扩展程序”。只用 Vite Provider 的场景不需要扩展。
+
+## 安装与运行（源码开发）
 
 环境要求：Node.js `^22.19.0 || >=24.0.0`（启用 Corepack）、pnpm 11.7.0、Chrome 118+，以及一份本地 DSH 源码检出。
 
