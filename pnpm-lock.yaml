@@ -8,6 +8,9 @@ importers:
 
   .:
     devDependencies:
+      '@playwright/test':
+        specifier: ^1.62.1
+        version: 1.62.1
       '@ycp424c/dsh-browser-bridge-page-runtime':
         specifier: workspace:^
         version: link:packages/page-runtime
@@ -17,9 +20,6 @@ importers:
       '@ycp424c/dsh-browser-bridge-vite':
         specifier: workspace:^
         version: link:packages/vite-plugin
-      '@playwright/test':
-        specifier: ^1.62.1
-        version: 1.62.1
       react:
         specifier: ^18.2.0
         version: 18.3.1
@@ -54,9 +54,6 @@ importers:
         specifier: ^19.1.0
         version: 19.2.8(react@19.2.8)
     devDependencies:
-      '@ycp424c/dsh-browser-bridge-protocol':
-        specifier: workspace:^
-        version: link:../packages/protocol
       '@tailwindcss/vite':
         specifier: ^4.1.11
         version: 4.3.3(vite@8.2.1(@types/node@26.2.0)(jiti@2.7.0))
@@ -75,6 +72,9 @@ importers:
       '@wxt-dev/module-react':
         specifier: ^1.1.4
         version: 1.2.2(vite@8.2.1(@types/node@26.2.0)(jiti@2.7.0))(wxt@0.21.3(rolldown@1.2.3)(typescript@6.0.3)(vite@8.2.1(@types/node@26.2.0)(jiti@2.7.0)))
+      '@ycp424c/dsh-browser-bridge-protocol':
+        specifier: workspace:^
+        version: link:../packages/protocol
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
@@ -111,6 +111,9 @@ importers:
 
   packages/dsh-plugin:
     dependencies:
+      '@deepseek-ai/schemastery':
+        specifier: ^3.18.1-rc.1
+        version: 3.18.1-rc.4
       ws:
         specifier: ^8.21.0
         version: 8.21.3
@@ -163,12 +166,6 @@ importers:
       '@deepseek-ai/dsh-tools':
         specifier: link:../../.dsh/source/current/packages/core/tools
         version: link:../../.dsh/source/current/packages/core/tools
-      '@deepseek-ai/schemastery':
-        specifier: link:../../.dsh/source/current/vendor/schemastery
-        version: link:../../.dsh/source/current/vendor/schemastery
-      '@ycp424c/dsh-browser-bridge-protocol':
-        specifier: workspace:^
-        version: link:../protocol
       '@types/node':
         specifier: ^22.0.0
         version: 22.20.1
@@ -181,6 +178,9 @@ importers:
       '@types/ws':
         specifier: ^8.18.1
         version: 8.18.1
+      '@ycp424c/dsh-browser-bridge-protocol':
+        specifier: workspace:^
+        version: link:../protocol
       jsdom:
         specifier: ^26.1.0
         version: 26.1.0
@@ -328,6 +328,12 @@ packages:
   '@csstools/css-tokenizer@3.0.4':
     resolution: {integrity: sha512-Vd/9EVDiu6PPJt9yAh6roZP6El1xHrdvIVGjyBsHR0RYwNHgL7FJPyIIW4fANJNG6FtyZfvlRPpFI4ZM/lubvw==}
     engines: {node: '>=18'}
+
+  '@deepseek-ai/cosmokit@1.8.2-rc.4':
+    resolution: {integrity: sha512-5m8WiQziJd3HKkf61zSryHyGoIqthtwKsvf3rx3fx8prjw3Ez/iIUnjktCzO2P5ghZrLwGOelQ4AeDtNHG3wLg==}
+
+  '@deepseek-ai/schemastery@3.18.1-rc.4':
+    resolution: {integrity: sha512-ZcaEjf3Mh0WN7Zlfm+syfff5dIFjy17lxXGsCcmwEtdQMjVsaRDGFX0yFZYSy7YsF5gx+d7FhFaQPVJIh/Zrlg==}
 
   '@jridgewell/gen-mapping@0.3.13':
     resolution: {integrity: sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA==}
@@ -2028,6 +2034,13 @@ snapshots:
       '@csstools/css-tokenizer': 3.0.4
 
   '@csstools/css-tokenizer@3.0.4': {}
+
+  '@deepseek-ai/cosmokit@1.8.2-rc.4': {}
+
+  '@deepseek-ai/schemastery@3.18.1-rc.4':
+    dependencies:
+      '@deepseek-ai/cosmokit': 1.8.2-rc.4
+      '@standard-schema/spec': 1.1.0
 
   '@jridgewell/gen-mapping@0.3.13':
     dependencies:

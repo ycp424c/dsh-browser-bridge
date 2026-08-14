@@ -2,6 +2,8 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
 interface PluginManifest {
+  dependencies?: Record<string, string>
+  devDependencies?: Record<string, string>
   dsh?: {
     client?: {
       inject?: string[]
@@ -9,6 +11,7 @@ interface PluginManifest {
     }
   }
   dshClient?: unknown
+  peerDependencies?: Record<string, string>
 }
 
 const manifest = JSON.parse(
@@ -27,5 +30,11 @@ describe('DSH plugin package metadata', () => {
       platform: 'web',
     })
     expect(manifest).not.toHaveProperty('dshClient')
+  })
+
+  it('ships the scoped schemastery runtime imported by the host bundle', () => {
+    expect(manifest.dependencies?.['@deepseek-ai/schemastery']).toBe('^3.18.1-rc.1')
+    expect(manifest.peerDependencies).not.toHaveProperty('@deepseek-ai/schemastery')
+    expect(manifest.devDependencies).not.toHaveProperty('@deepseek-ai/schemastery')
   })
 })

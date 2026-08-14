@@ -68,9 +68,9 @@ export default [
     outDir: 'lib',
     outExtension: () => ({ js: '.js', dts: '.d.ts' }),
     plugins: [dshSourceResolver()],
-    // cordis/schemastery/ws come from the host DSH installation; the DSH
-    // runtime packages are inlined so the plugin works against a source
-    // checkout AND a built installation.
+    // Schemastery and ws are plugin runtime dependencies. The DSH runtime
+    // packages are inlined so the plugin works against a source checkout AND
+    // a built installation; cordis is type-only in the host entry.
     deps: {
       neverBundle: ['@deepseek-ai/schemastery', 'ws'],
       // protocol and the DSH runtime packages are inlined (they are
