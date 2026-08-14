@@ -103,7 +103,7 @@ class FakePort {
   }
 }
 
-function makeRouter(overrides: { catalog?: TabCatalog; toolExecutor?: ToolExecutor; startupReady?: Promise<void> } = {}): {
+function makeRouter(overrides: { catalog?: TabCatalog; toolExecutor?: ToolExecutor; startupReady?: Promise<void>; vault?: GrantVault } = {}): {
   router: BridgeRouter
   bridge: FakeBridge
   vault: GrantVault
@@ -112,7 +112,7 @@ function makeRouter(overrides: { catalog?: TabCatalog; toolExecutor?: ToolExecut
   debuggerApi: ChromeDebuggerApi
 } {
   const bridge = new FakeBridge()
-  const vault = new GrantVault()
+  const vault = overrides.vault ?? new GrantVault()
   const catalog = overrides.catalog ?? ({
     byId: vi.fn(async (tabId: number): Promise<TabDescriptor | undefined> => (tabId === TAB.tabId ? { ...TAB } : undefined)),
     current: vi.fn(async (): Promise<TabDescriptor> => ({ ...TAB })),
@@ -387,6 +387,45 @@ describe('bridge router', () => {
       {},
     )
     expect(bridge.sentOf('tool.result')).toMatchObject({ requestId: RequestId('t1'), result: { ok: true } })
+  })
+
+  it('renews the grant idle deadline for each new authorized tool call', async () => {
+    let now = 1_000
+    const vault = new GrantVault({ now: () => now, idleTtlMs: 60_000, maxTtlMs: 300_000 })
+    const executor = vi.fn(async (): Promise<unknown> => ({ ok: true }))
+    const { router, bridge } = makeRouter({ vault, toolExecutor: executor as unknown as ToolExecutor })
+    const port = new FakePort()
+    router.connectPanel(port.raw)
+    port.receive({ type: 'grant.create', requestId: 'r1', sessionId: 's1', tab: { ...TAB } })
+    await vi.waitFor(() => {
+      expect(bridge.sentOf('grant.put')).toBeDefined()
+    })
+    const put = bridge.sentOf('grant.put') as GrantPutFrame
+    expect(put.expiresAt).toBe(301_000)
+    bridge.receive({
+      v: PROTOCOL_VERSION,
+      type: 'grant.accepted',
+      grantId: put.grantId,
+      handle: GrantHandle('h'.repeat(32)),
+    })
+    await vi.waitFor(() => {
+      expect(port.replies()).toHaveLength(1)
+    })
+
+    now = 51_000
+    bridge.receive({
+      v: PROTOCOL_VERSION,
+      type: 'tool.call',
+      requestId: RequestId('renew-1'),
+      grantId: put.grantId,
+      operation: 'observe',
+      args: {},
+    })
+    await vi.waitFor(() => {
+      expect(bridge.sentOf('tool.result')).toBeDefined()
+    })
+
+    expect(vault.resolve(put.grantId).expiresAt).toBe(111_000)
   })
 
   it('reports a stable error when a tool call fails', async () => {

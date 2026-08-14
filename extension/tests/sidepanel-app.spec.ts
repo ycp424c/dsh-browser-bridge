@@ -113,4 +113,16 @@ describe('side panel runtime port', () => {
 
     expect(cleanupError).toBeUndefined()
   })
+
+  it('forwards pairing-required notifications to the embedded DSH client', async () => {
+    await act(async () => { root?.render(createElement(App)) })
+    const iframe = container.querySelector('iframe')
+    expect(iframe?.contentWindow).not.toBeNull()
+    const postMessage = vi.spyOn(iframe!.contentWindow!, 'postMessage')
+    const notification = { type: 'bridge.pairing-required', delayMs: 375 }
+
+    act(() => { ports[0]!.onMessage.emit(notification) })
+
+    expect(postMessage).toHaveBeenCalledWith(notification, 'http://127.0.0.1:3080')
+  })
 })

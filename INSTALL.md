@@ -171,7 +171,7 @@ export default defineConfig({
 | --- | --- |
 | Side panel shows "DSH Web did not respond" | DSH Web is offline, or its server blocks framing (`X-Frame-Options`/CSP `frame-ancestors`). Start `dsh web`, retry, or edit the origin. |
 | `bridge_disconnected` | The extension is not paired with DSH Web. Reload the side panel and DSH Web; the client re-pairs with a fresh nonce. |
-| `grant_expired` | The turn ended or the grant deadline passed. Attach the tab again in a new prompt. |
+| `grant_expired` | The turn ended, the Chrome grant was idle for 10 minutes after its last fresh tool call settled, or its 6-hour absolute cap passed. Attach the tab again in a new prompt. In-flight calls are not idle; exact request replays do not renew. |
 | `tab_closed` | The attached tab was closed. Attach the current tab again. |
 | `unsupported_page` | The tab is a Chrome-protected, incognito, or otherwise unsupported page. |
 | `debugger_busy` | Another debugger (for example DevTools) is attached to the tab. Close DevTools and retry. |

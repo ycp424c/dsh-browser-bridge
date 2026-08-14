@@ -171,6 +171,69 @@ describe('bridge server', () => {
     await expect(pending).rejects.toMatchObject({ code: 'stale_element' })
   })
 
+  it('defensively revokes host authority when the extension reports grant_expired', async () => {
+    const { server, pairing, coordinator, grants } = makeServer()
+    const { socket, connectionId } = await connect(server, pairing)
+    offerGrant(coordinator, connectionId)
+    const pending = server.requestGrant(GrantId('g1'), 'observe', {}, new AbortController().signal)
+    const call = socket.sentOf('tool.call') as ToolCallFrame
+    socket.receive(JSON.stringify({
+      v: PROTOCOL_VERSION,
+      type: 'tool.result',
+      requestId: call.requestId,
+      result: { ok: false, error: { code: 'grant_expired', message: 'idle lease expired', retryable: false } },
+    } satisfies ToolResultFrame))
+
+    await expect(pending).rejects.toMatchObject({ code: 'grant_expired' })
+    expect(() => grants.resolve(GrantId('g1'))).toThrow(/grant/)
+    expect(socket.frames()).toContainEqual(expect.objectContaining({ type: 'grant.revoke', grantId: 'g1' }))
+  })
+
+  it('cancels every pending call when the extension revokes their grant', async () => {
+    const { server, pairing, coordinator } = makeServer({ toolTimeoutMs: 50 })
+    const { socket, connectionId } = await connect(server, pairing)
+    offerGrant(coordinator, connectionId)
+    const observe = server.requestGrant(GrantId('g1'), 'observe', {}, new AbortController().signal)
+    const inspect = server.requestGrant(GrantId('g1'), 'inspect', {}, new AbortController().signal)
+    const settled = Promise.all([
+      expect(observe).rejects.toMatchObject({ code: 'grant_expired' }),
+      expect(inspect).rejects.toMatchObject({ code: 'grant_expired' }),
+    ])
+
+    socket.receive(JSON.stringify({ v: PROTOCOL_VERSION, type: 'grant.revoke', grantId: GrantId('g1') }))
+
+    await settled
+  })
+
+  it('cancels sibling calls after one call reports grant_expired', async () => {
+    const { server, pairing, coordinator } = makeServer({ toolTimeoutMs: 50 })
+    const { socket, connectionId } = await connect(server, pairing)
+    offerGrant(coordinator, connectionId)
+    const observe = server.requestGrant(GrantId('g1'), 'observe', {}, new AbortController().signal)
+    const inspect = server.requestGrant(GrantId('g1'), 'inspect', {}, new AbortController().signal)
+    const calls = socket.frames().filter(frame => frame.type === 'tool.call') as ToolCallFrame[]
+    expect(calls).toHaveLength(2)
+    const settled = Promise.all([
+      expect(observe).rejects.toMatchObject({ code: 'grant_expired' }),
+      expect(inspect).rejects.toMatchObject({ code: 'grant_expired' }),
+    ])
+
+    socket.receive(JSON.stringify({
+      v: PROTOCOL_VERSION,
+      type: 'tool.result',
+      requestId: calls[0]!.requestId,
+      result: { ok: false, error: { code: 'grant_expired', message: 'idle lease expired', retryable: false } },
+    } satisfies ToolResultFrame))
+
+    await settled
+    socket.receive(JSON.stringify({
+      v: PROTOCOL_VERSION,
+      type: 'tool.result',
+      requestId: calls[1]!.requestId,
+      result: { ok: true, value: { page: { url: 'http://late/' } } },
+    } satisfies ToolResultFrame))
+  })
+
   it('rejects pending WRITE calls when the connection closes', async () => {
     const { server, pairing, coordinator } = makeServer()
     const { socket, connectionId } = await connect(server, pairing)

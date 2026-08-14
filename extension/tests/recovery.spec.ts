@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   ConnectionId, GrantHandle, GrantId, PROTOCOL_VERSION, type BridgeFrame,
-  type GrantPutFrame, type TabDescriptor, type ToolAcceptedFrame,
+  type GrantPutFrame, type JsonValue, type TabDescriptor, type ToolAcceptedFrame,
 } from '@ycp424c/dsh-browser-bridge-protocol'
 import { BridgeRouter, type ToolExecutor } from '../src/bridge/router.ts'
 import { BridgeClient as RealBridgeClient, type BridgeSocket } from '../src/bridge/client.ts'
@@ -93,7 +93,10 @@ class FakePort {
   }
 }
 
-async function makeRouter(executor: ToolExecutor = async () => ({ ok: true })): Promise<{
+async function makeRouter(
+  executor: ToolExecutor = async () => ({ ok: true }),
+  vaultOverride?: GrantVault,
+): Promise<{
   router: BridgeRouter
   bridge: FakeBridge
   vault: GrantVault
@@ -103,7 +106,7 @@ async function makeRouter(executor: ToolExecutor = async () => ({ ok: true })): 
   port: FakePort
 }> {
   const bridge = new FakeBridge()
-  const vault = new GrantVault()
+  const vault = vaultOverride ?? new GrantVault()
   const catalog = {
     byId: async (tabId: number): Promise<TabDescriptor | undefined> => (tabId === TAB.tabId ? { ...TAB } : undefined),
     current: async (): Promise<TabDescriptor> => ({ ...TAB }),
@@ -151,15 +154,20 @@ describe('extension recovery', () => {
   })
 
   it('answers an exact duplicate request id from the journal cache without re-executing', async () => {
+    let now = 1_000
+    const vault = new GrantVault({ now: () => now, idleTtlMs: 60_000, maxTtlMs: 300_000 })
     const executor = vi.fn(async () => ({ ok: true, page: { url: 'http://x/' } }))
-    const { bridge, grantId } = await makeRouter(executor as unknown as ToolExecutor)
+    const { bridge, grantId } = await makeRouter(executor as unknown as ToolExecutor, vault)
+    now = 51_000
     bridge.receive({
       v: PROTOCOL_VERSION, type: 'tool.call', requestId: 't2' as never, grantId, operation: 'observe', args: {},
     })
     await vi.waitFor(() => {
       expect(bridge.sentOf('tool.result')).toHaveLength(1)
     })
+    expect(vault.resolve(grantId).expiresAt).toBe(111_000)
     // The same request id arrives again (network-level duplication).
+    now = 71_000
     bridge.receive({
       v: PROTOCOL_VERSION, type: 'tool.call', requestId: 't2' as never, grantId, operation: 'observe', args: {},
     })
@@ -167,15 +175,171 @@ describe('extension recovery', () => {
       expect(bridge.sentOf('tool.result')).toHaveLength(2)
     })
     expect(executor).toHaveBeenCalledTimes(1)
+    expect(vault.resolve(grantId).expiresAt).toBe(111_000)
     expect(bridge.sentOf('tool.result')[1]).toMatchObject({ requestId: 't2', result: { ok: true } })
+  })
+
+  it('journals a concurrent duplicate before lazy CDP attachment can yield', async () => {
+    let release!: (value: JsonValue) => void
+    const pending = new Promise<JsonValue>(resolve => { release = resolve })
+    const executor = vi.fn(() => pending)
+    const { bridge, grantId } = await makeRouter(executor as unknown as ToolExecutor)
+    const frame = {
+      v: PROTOCOL_VERSION,
+      type: 'tool.call',
+      requestId: 't-concurrent' as never,
+      grantId,
+      operation: 'observe',
+      args: {},
+    } as const
+
+    bridge.receive(frame)
+    bridge.receive(frame)
+    await vi.waitFor(() => {
+      expect(executor).toHaveBeenCalled()
+    })
+    release({ ok: true })
+    await vi.waitFor(() => {
+      expect(bridge.sentOf('tool.result')).toHaveLength(2)
+    })
+
+    expect(executor).toHaveBeenCalledTimes(1)
+  })
+
+  it('replays a failed duplicate without renewing or executing it again', async () => {
+    let now = 1_000
+    const vault = new GrantVault({ now: () => now, idleTtlMs: 60_000, maxTtlMs: 300_000 })
+    const executor = vi.fn(async () => {
+      throw { code: 'internal', message: 'fixture failure', retryable: false }
+    })
+    const { bridge, grantId } = await makeRouter(executor as unknown as ToolExecutor, vault)
+    const frame = {
+      v: PROTOCOL_VERSION,
+      type: 'tool.call',
+      requestId: 't-failed-duplicate' as never,
+      grantId,
+      operation: 'observe',
+      args: {},
+    } as const
+
+    now = 51_000
+    bridge.receive(frame)
+    await vi.waitFor(() => {
+      expect(bridge.sentOf('tool.result')).toHaveLength(1)
+    })
+    expect(vault.resolve(grantId).expiresAt).toBe(111_000)
+
+    now = 71_000
+    bridge.receive(frame)
+    await vi.waitFor(() => {
+      expect(bridge.sentOf('tool.result')).toHaveLength(2)
+    })
+
+    expect(executor).toHaveBeenCalledTimes(1)
+    expect(vault.resolve(grantId).expiresAt).toBe(111_000)
+    expect(bridge.sentOf('tool.result')[1]).toMatchObject({
+      requestId: 't-failed-duplicate',
+      result: { ok: false, error: { code: 'internal', message: 'fixture failure' } },
+    })
+  })
+
+  it('replays a successful duplicate after the former short cache window', async () => {
+    let now = 1_000
+    const vault = new GrantVault({ now: () => now, idleTtlMs: 60_000, maxTtlMs: 300_000 })
+    const executor = vi.fn(async () => ({ ok: true }))
+    const { bridge, grantId } = await makeRouter(executor as unknown as ToolExecutor, vault)
+    const frame = {
+      v: PROTOCOL_VERSION,
+      type: 'tool.call',
+      requestId: 't-delayed-duplicate' as never,
+      grantId,
+      operation: 'observe',
+      args: {},
+    } as const
+
+    now = 51_000
+    bridge.receive(frame)
+    await vi.waitFor(() => {
+      expect(bridge.sentOf('tool.result')).toHaveLength(1)
+    })
+    await vi.advanceTimersByTimeAsync(11_000)
+    now = 71_000
+    bridge.receive(frame)
+    await vi.waitFor(() => {
+      expect(bridge.sentOf('tool.result')).toHaveLength(2)
+    })
+
+    expect(executor).toHaveBeenCalledTimes(1)
+    expect(vault.resolve(grantId).expiresAt).toBe(111_000)
+  })
+
+  it('fails closed when a request id is reused with a different payload', async () => {
+    let now = 1_000
+    const vault = new GrantVault({ now: () => now, idleTtlMs: 60_000, maxTtlMs: 300_000 })
+    const executor = vi.fn(async () => ({ ok: true }))
+    const { bridge, grantId } = await makeRouter(executor as unknown as ToolExecutor, vault)
+    now = 51_000
+    bridge.receive({
+      v: PROTOCOL_VERSION, type: 'tool.call', requestId: 't-reused' as never, grantId, operation: 'observe', args: {},
+    })
+    await vi.waitFor(() => {
+      expect(bridge.sentOf('tool.result')).toHaveLength(1)
+    })
+    now = 71_000
+    bridge.receive({
+      v: PROTOCOL_VERSION, type: 'tool.call', requestId: 't-reused' as never, grantId, operation: 'inspect', args: {},
+    })
+    await vi.waitFor(() => {
+      expect(bridge.sentOf('tool.result')).toHaveLength(2)
+    })
+
+    expect(executor).toHaveBeenCalledTimes(1)
+    expect(vault.resolve(grantId).expiresAt).toBe(111_000)
+    expect(bridge.sentOf('tool.result')[1]).toMatchObject({
+      result: { ok: false, error: { code: 'permission_denied' } },
+    })
+  })
+
+  it('does not treat an in-flight tool call as idle before it settles', async () => {
+    let now = 1_000
+    const vault = new GrantVault({ now: () => now, idleTtlMs: 60_000, maxTtlMs: 300_000 })
+    let release!: (value: JsonValue) => void
+    const pending = new Promise<JsonValue>(resolve => { release = resolve })
+    const executor = vi.fn(() => pending)
+    const { bridge, grantId, manager } = await makeRouter(executor as unknown as ToolExecutor, vault)
+    const expired: GrantId[][] = []
+    const off = vault.startExpirySweep(ids => {
+      expired.push(ids)
+      for (const id of ids) manager.revoke(id)
+    })
+
+    now = 51_000
+    bridge.receive({
+      v: PROTOCOL_VERSION, type: 'tool.call', requestId: 't-long' as never, grantId, operation: 'observe', args: {},
+    })
+    await vi.waitFor(() => {
+      expect(executor).toHaveBeenCalledTimes(1)
+    })
+    now = 112_000
+    await vi.advanceTimersByTimeAsync(61_000)
+
+    expect(expired).toEqual([])
+    expect(vault.resolve(grantId)).toBeDefined()
+
+    release({ ok: true })
+    await vi.waitFor(() => {
+      expect(bridge.sentOf('tool.result')).toHaveLength(1)
+    })
+    expect(vault.resolve(grantId).expiresAt).toBe(172_000)
+    off()
   })
 
   it('expires grants through the sweep and detaches their sessions', async () => {
     let now = 1_000
-    const vault = new GrantVault({ now: () => now, ttlMs: 60_000 })
+    const vault = new GrantVault({ now: () => now, idleTtlMs: 60_000 })
     const debuggerApi = new FakeDebuggerApi()
     const manager = new CdpSessionManager({ debuggerApi: new ChromeDebugger(debuggerApi as never, { lastError: () => undefined }) })
-    const grant = vault.create({ sessionId: 's1', tab: TAB, ttlMs: 60_000 })
+    const grant = vault.create({ sessionId: 's1', tab: TAB, idleTtlMs: 60_000 })
     manager.bind({ grantId: grant.grantId, tabId: TAB.tabId })
     await manager.session(grant.grantId)
     expect(debuggerApi.attach).toHaveBeenCalled()
@@ -193,12 +357,12 @@ describe('extension recovery', () => {
 
   it('sweeps grants created after the sweep started on an empty vault', async () => {
     let now = 1_000
-    const vault = new GrantVault({ now: () => now, ttlMs: 60_000 })
+    const vault = new GrantVault({ now: () => now, idleTtlMs: 60_000 })
     const expired: GrantId[][] = []
     // The real startup order: the sweep is started BEFORE any grant exists,
     // so no timer is armed for the empty vault.
     vault.startExpirySweep(ids => expired.push(ids))
-    const grant = vault.create({ sessionId: 's1', tab: TAB, ttlMs: 60_000 })
+    const grant = vault.create({ sessionId: 's1', tab: TAB, idleTtlMs: 60_000 })
     now = 1_000 + 61_000
     await vi.advanceTimersByTimeAsync(61_000)
     expect(expired).toEqual([[grant.grantId]])
@@ -206,11 +370,11 @@ describe('extension recovery', () => {
 
   it('re-arms the sweep after a grant created later expires', async () => {
     let now = 1_000
-    const vault = new GrantVault({ now: () => now, ttlMs: 60_000 })
+    const vault = new GrantVault({ now: () => now, idleTtlMs: 60_000 })
     const expired: GrantId[][] = []
     vault.startExpirySweep(ids => expired.push(ids))
-    const first = vault.create({ sessionId: 's1', tab: TAB, ttlMs: 60_000 })
-    const second = vault.create({ sessionId: 's1', tab: { ...TAB, tabId: 12 }, ttlMs: 120_000 })
+    const first = vault.create({ sessionId: 's1', tab: TAB, idleTtlMs: 60_000 })
+    const second = vault.create({ sessionId: 's1', tab: { ...TAB, tabId: 12 }, idleTtlMs: 120_000 })
     now = 1_000 + 61_000
     await vi.advanceTimersByTimeAsync(61_000)
     expect(expired).toEqual([[first.grantId]])
@@ -222,7 +386,7 @@ describe('extension recovery', () => {
 
   it('expiry revokes the CDP session and reports the grant for host notification', async () => {
     let now = 1_000
-    const vault = new GrantVault({ now: () => now, ttlMs: 60_000 })
+    const vault = new GrantVault({ now: () => now, idleTtlMs: 60_000 })
     const debuggerApi = new FakeDebuggerApi()
     const manager = new CdpSessionManager({ debuggerApi: new ChromeDebugger(debuggerApi as never, { lastError: () => undefined }) })
     const revoked: GrantId[] = []
@@ -236,7 +400,7 @@ describe('extension recovery', () => {
         notified.push(id)
       }
     })
-    const grant = vault.create({ sessionId: 's1', tab: TAB, ttlMs: 60_000 })
+    const grant = vault.create({ sessionId: 's1', tab: TAB, idleTtlMs: 60_000 })
     manager.bind({ grantId: grant.grantId, tabId: TAB.tabId })
     await manager.session(grant.grantId)
     expect(debuggerApi.attach).toHaveBeenCalled()

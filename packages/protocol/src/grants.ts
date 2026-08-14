@@ -28,7 +28,11 @@ export const tabDescriptorSchema = z.strictObject({
   favIconUrl: z.string().optional(),
 })
 
-/** Server-side offer of one prompt-scoped grant (never model-visible). */
+/**
+ * Server-side offer of one prompt-scoped grant (never model-visible).
+ * `expiresAt` is the provider's immutable hard upper bound; a provider may
+ * enforce a shorter idle lease and revoke the grant before this deadline.
+ */
 export interface GrantOffer {
   grantId: GrantId
   sessionId: string

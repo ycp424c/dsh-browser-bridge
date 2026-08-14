@@ -24,6 +24,7 @@ export const inject = ['webServer', 'attachments', 'llm']
 /** Input config shape; defaults are applied by the `Config` schema. */
 export interface ConfigShape {
   pairingTtlMs?: number
+  /** Fixed lifetime for Vite-provider grants; Chrome uses its extension lease. */
   grantTtlMs?: number
   toolTimeoutMs?: number
   consoleBufferSize?: number
@@ -147,6 +148,12 @@ export function apply(ctx: Context, config: ConfigShape): void {
     const offTurnStopping = ctx.on('agent/turn-stopping', ({ agent, turn }) => {
       preStep.onTurnStopping(agent, turn)
     })
+    // Durable turn/end covers every terminal outcome, including model and
+    // adapter errors that bypass agent/turn-stopping and do not abort the
+    // turn signal. The normal stopping path remains an idempotent fast path.
+    const offTurnEnd = ctx.on('session/event', (session, event) => {
+      if (event.type === 'turn/end') preStep.onTurnEnd(String(session.id), event.data.turn)
+    })
     const offDisposed = ctx.on('agent/disposed', ({ agent }) => {
       preStep.dispose(agent)
     })
@@ -163,6 +170,7 @@ export function apply(ctx: Context, config: ConfigShape): void {
       offViteRoutes()
       offPreStep()
       offTurnStopping()
+      offTurnEnd()
       offDisposed()
       // Terminal: remove turn-scoped tools, then revoke every remaining
       // grant of the live connection (consumed and pending offers) with

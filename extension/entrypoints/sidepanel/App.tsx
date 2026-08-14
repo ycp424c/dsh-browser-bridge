@@ -55,8 +55,8 @@ export default function App() {
         const payload = message as { type?: string; state?: BridgeClientState }
         if (payload.type === 'bridge.status' && payload.state !== undefined) {
           setStatus(payload.state)
-        } else if (payload.type === 'panel.reply') {
-          // Replies to iframe requests are forwarded with the exact origin.
+        } else if (payload.type === 'panel.reply' || payload.type === 'bridge.pairing-required') {
+          // Replies and reconnect requests reach only the configured DSH origin.
           iframeRef.current?.contentWindow?.postMessage(payload, originRef.current ?? '')
         }
       },

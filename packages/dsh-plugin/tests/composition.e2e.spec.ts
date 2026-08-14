@@ -387,6 +387,34 @@ describe('DSH composition', () => {
     }
   })
 
+  it('cleans turn authority through the registered durable session/event listener', async () => {
+    composition = await makeComposition()
+    const { ctx, agent, baseUrl, wsUrl } = composition
+    const peer = new ExtensionPeer()
+    try {
+      const nonce = await fetchPairingNonce(baseUrl)
+      await peer.connect(wsUrl, nonce)
+      const { handle } = await peer.putGrant(String(agent.session.header.id), TAB)
+      await proposeStep(ctx, agent, userMessage(`verify ${encodeMarker(handle)}`), 1)
+      expect(agent.ctx.tools.get('browser_observe', agent)).toBeDefined()
+
+      ctx.emit('session/event', agent.session, {
+        type: 'turn/end',
+        seq: 1,
+        time: Date.now(),
+        data: { turn: 1, reason: { kind: 'completed' } },
+      })
+
+      expect(agent.ctx.tools.get('browser_observe', agent)).toBeUndefined()
+      await expect(peer.nextFrame(frame => frame.type === 'grant.revoke')).resolves.toMatchObject({
+        type: 'grant.revoke',
+        grantId: peer.lastGrantId,
+      })
+    } finally {
+      peer.close()
+    }
+  })
+
   it('attaches a Vite page over the real WebSocket and routes tools to it', async () => {
     composition = await makeComposition()
     const { ctx, agent, baseUrl } = composition

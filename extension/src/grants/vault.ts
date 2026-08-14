@@ -16,14 +16,22 @@ export interface VaultGrant {
   grantId: GrantId
   sessionId: string
   tab: TabDescriptor
+  /** Sliding idle deadline; renewed by each new authorized tool call. */
   expiresAt: number
+  /** Absolute deadline that renewal can never move past. */
+  maxExpiresAt: number
   state: 'issued' | 'accepted' | 'revoked'
   handle?: GrantHandle
+  /** Per-grant idle window retained for deterministic renewal. */
+  idleTtlMs: number
+  /** Fresh tool calls currently executing under this authority. */
+  activeCalls: number
 }
 
 export interface GrantVaultOptions {
   now?: () => number
-  ttlMs?: number
+  idleTtlMs?: number
+  maxTtlMs?: number
 }
 
 export interface OwnedGrantLedgerEntry {
@@ -31,9 +39,15 @@ export interface OwnedGrantLedgerEntry {
   tabId: number
 }
 
+/** Inactive prompt authority is revoked after ten minutes. */
+export const DEFAULT_GRANT_IDLE_TTL_MS = 10 * 60_000
+/** Active prompts remain bounded even when browser calls keep renewing them. */
+export const DEFAULT_GRANT_MAX_TTL_MS = 6 * 60 * 60_000
+
 export class GrantVault {
   private readonly now: () => number
-  private readonly defaultTtlMs: number
+  private readonly defaultIdleTtlMs: number
+  private readonly defaultMaxTtlMs: number
   private readonly grants = new Map<string, VaultGrant>()
   private expiryTimer: ReturnType<typeof setTimeout> | null = null
   private sweepActive = false
@@ -42,7 +56,8 @@ export class GrantVault {
 
   constructor(options: GrantVaultOptions = {}) {
     this.now = options.now ?? Date.now
-    this.defaultTtlMs = options.ttlMs ?? 10 * 60_000
+    this.defaultIdleTtlMs = options.idleTtlMs ?? DEFAULT_GRANT_IDLE_TTL_MS
+    this.defaultMaxTtlMs = options.maxTtlMs ?? DEFAULT_GRANT_MAX_TTL_MS
   }
 
   /** Subscribe to grant-set changes (for ledger synchronization). */
@@ -55,14 +70,25 @@ export class GrantVault {
     for (const listener of this.listeners) listener()
   }
 
-  create(input: { sessionId: string; tab: TabDescriptor; ttlMs?: number }): VaultGrant {
+  create(input: {
+    sessionId: string
+    tab: TabDescriptor
+    idleTtlMs?: number
+    maxTtlMs?: number
+  }): VaultGrant {
+    const now = this.now()
+    const idleTtlMs = input.idleTtlMs ?? this.defaultIdleTtlMs
+    const maxExpiresAt = now + (input.maxTtlMs ?? this.defaultMaxTtlMs)
     const grantId = newGrantId()
     const grant: VaultGrant = {
       grantId,
       sessionId: input.sessionId,
       tab: { ...input.tab },
-      expiresAt: this.now() + (input.ttlMs ?? this.defaultTtlMs),
+      expiresAt: Math.min(now + idleTtlMs, maxExpiresAt),
+      maxExpiresAt,
       state: 'issued',
+      idleTtlMs,
+      activeCalls: 0,
     }
     this.grants.set(grantId, grant)
     this.notify()
@@ -80,6 +106,35 @@ export class GrantVault {
       throw bridgeError('grant_expired', 'grant expired', false)
     }
     return grant
+  }
+
+  /** Renew one live grant's idle deadline without exceeding its hard cap. */
+  renew(grantId: GrantId): VaultGrant {
+    const grant = this.resolve(grantId)
+    grant.expiresAt = Math.min(this.now() + grant.idleTtlMs, grant.maxExpiresAt)
+    this.schedule()
+    return grant
+  }
+
+  /** Mark one fresh tool call active; duplicates must never call this. */
+  beginActivity(grantId: GrantId): VaultGrant {
+    const grant = this.resolve(grantId)
+    grant.activeCalls += 1
+    // An executing call is not idle, but the immutable hard cap still wins.
+    grant.expiresAt = grant.maxExpiresAt
+    this.schedule()
+    return grant
+  }
+
+  /** End one fresh call and start idle time after the last call settles. */
+  endActivity(grantId: GrantId): void {
+    const grant = this.grants.get(grantId)
+    if (grant === undefined || grant.activeCalls === 0) return
+    grant.activeCalls -= 1
+    if (grant.activeCalls === 0) {
+      grant.expiresAt = Math.min(this.now() + grant.idleTtlMs, grant.maxExpiresAt)
+    }
+    this.schedule()
   }
 
   revoke(grantId: GrantId): void {

@@ -480,6 +480,21 @@ describe('pre-step marker consumption', () => {
       .toContainEqual(expect.objectContaining({ grantId: 'g-failed-turn' }))
   })
 
+  it('revokes turn authority when the durable turn/end event arrives', async () => {
+    const fixture = await makeFixture()
+    const { ctx, agent, connectionId, offer, grants, socket, handler } = fixture
+    const handle = offer(connectionId, 'session-a', TAB, 'g-durable-turn-end')
+    await proposeStep(ctx, agent, userMessage(`verify ${encodeMarker(handle)}`), 1)
+    expect(agent.ctx.tools.get('browser_observe', agent)).toBeDefined()
+
+    handler.onTurnEnd('session-a', 1)
+
+    expect(agent.ctx.tools.get('browser_observe', agent)).toBeUndefined()
+    expect(() => grants.resolve(GrantId('g-durable-turn-end'))).toThrow(/grant/)
+    expect(socket.frames().filter(frame => frame.type === 'grant.revoke'))
+      .toContainEqual(expect.objectContaining({ grantId: 'g-durable-turn-end' }))
+  })
+
   it('drops stale browser authority when a new turn has no attachment', async () => {
     const fixture = await makeFixture()
     const { ctx, agent, connectionId, offer, grants } = fixture

@@ -43,6 +43,7 @@ export interface PreStepPayload {
 export interface PreStepHandler {
   (payload: PreStepPayload, next: () => Promise<PreStepDecision>): Promise<PreStepDecision>
   onTurnStopping(agent: Agent, turn: number): void
+  onTurnEnd(sessionId: string, turn: number): void
   dispose(agent: Agent): void
   disposeAll(): void
 }
@@ -250,6 +251,11 @@ export function createPreStepHandler(deps: PreStepHandlerDeps): PreStepHandler {
   }
 
   handler.onTurnStopping = (agent, turn) => cleanup(agent, turn)
+  handler.onTurnEnd = (sessionId, turn) => {
+    for (const [agent, current] of active) {
+      if (current.sessionId === sessionId && current.turn === turn) cleanup(agent, turn)
+    }
+  }
   handler.dispose = agent => {
     const current = active.get(agent)
     if (current === undefined) return

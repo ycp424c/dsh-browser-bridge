@@ -476,6 +476,14 @@ export class BridgeServer implements BrowserProvider {
     }
   }
 
+  /** Revoke one grant and prevent every in-flight sibling from settling. */
+  private revokeGrantAndCancelPending(grantId: GrantId): void {
+    this.coordinator.revoke(grantId)
+    // Cancel by the explicit id even when the record was already absent: a
+    // duplicate revoke must still fail closed for any surviving pending call.
+    this.cancelPendingForGrants([grantId])
+  }
+
   /** Handle one authenticated inbound frame from the live connection. */
   private receive(frame: BridgeFrame, socket: BridgeSocket): void {
     switch (frame.type) {
@@ -519,7 +527,7 @@ export class BridgeServer implements BrowserProvider {
         return
       }
       case 'grant.revoke':
-        this.coordinator.revoke(GrantId(frame.grantId))
+        this.revokeGrantAndCancelPending(GrantId(frame.grantId))
         return
       case 'tool.result': {
         const pending = this.pending.get(frame.requestId)
@@ -528,6 +536,12 @@ export class BridgeServer implements BrowserProvider {
         if (frame.result.ok) {
           pending.resolve(frame.result.value)
         } else {
+          if (frame.result.error.code === 'grant_expired') {
+            // The extension is authoritative for its shorter idle lease. If
+            // its earlier revoke was lost, this result is a second fail-closed
+            // signal: remove the Host record and echo cleanup to the provider.
+            this.revokeGrantAndCancelPending(pending.grantId)
+          }
           pending.reject(frame.result.error)
         }
         return

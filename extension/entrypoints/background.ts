@@ -95,7 +95,8 @@ export default defineBackground(() => {
     try {
       client.send({ v: 1, type: 'grant.revoke', grantId })
     } catch {
-      // The bridge may be down; the host drops grants on disconnect anyway.
+      // Transient loss is queued inside BridgeClient; only a terminal or
+      // not-yet-owned client can reject this best-effort notification.
     }
   }
 
@@ -147,6 +148,11 @@ export default defineBackground(() => {
     }
   }
   disposers.push(client.onState(broadcastStatus))
+  disposers.push(client.onPairingRequired(delayMs => {
+    for (const port of panels) {
+      port.postMessage({ type: 'bridge.pairing-required', delayMs })
+    }
+  }))
 
   const onConnect = (port: chrome.runtime.Port): void => {
     if (port.name !== 'sidepanel') return

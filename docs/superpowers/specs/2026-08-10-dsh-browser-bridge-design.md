@@ -233,9 +233,17 @@ The extension uses `chrome.debugger` as its only browser-control transport.
 - Tool-initiated navigation may continue in the same tab and returns the new
   URL. An unexpected cross-origin transition suspends further writes until the
   user issues a new prompt grant.
-- Completion, cancellation, expiry, tab closure, or bridge loss explicitly
-  releases the corresponding session. An unexpected service-worker interruption
-  is handled by startup reconciliation before new work is accepted.
+- Durable `turn/end` (completed, error, aborted, or disposed), tab closure, or
+  terminal bridge loss explicitly releases the corresponding session. Chrome
+  grants also use a 10-minute sliding idle lease bounded by an immutable 6-hour
+  maximum. A fresh authorized tool request suspends idle expiry while it is in
+  flight; after the last fresh call settles, the idle deadline starts again.
+  Request ids enter a grant-scoped journal before asynchronous CDP attachment,
+  so concurrent, failed, and delayed exact duplicates replay the original
+  outcome without execution or renewal; payload-changing reuse fails closed.
+  Revocations created during a transient disconnect are flushed before the same
+  logical session publishes `connected`. An unexpected service-worker
+  interruption is handled by startup reconciliation before new work is accepted.
 - Opening Chrome DevTools can detach `chrome.debugger`; this is surfaced as a
   specific recoverable error rather than hidden behind a generic action failure.
 

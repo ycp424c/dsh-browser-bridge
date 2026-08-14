@@ -8,6 +8,7 @@ class FakeSocket implements BridgeSocket {
   sent: BridgeFrame[] = []
   sentRaw: string[] = []
   closed = false
+  failSend = false
   private openHandlers: (() => void)[] = []
   private messageHandlers: ((text: string) => void)[] = []
   private closeHandlers: (() => void)[] = []
@@ -17,6 +18,7 @@ class FakeSocket implements BridgeSocket {
   onClose(handler: () => void): void { this.closeHandlers.push(handler) }
 
   send(text: string): void {
+    if (this.failSend) throw new Error('socket write failed')
     this.sentRaw.push(text)
     this.sent.push(JSON.parse(text) as BridgeFrame)
   }
@@ -159,6 +161,88 @@ describe('bridge client', () => {
       connectionId: ConnectionId('c2'),
     }))
     expect(changed).toEqual([1])
+  })
+
+  it('queues grant revocation while disconnected and flushes it on the same logical session', () => {
+    let socket = new FakeSocket()
+    const client = new BridgeClient({ createSocket: () => socket, heartbeatMs: 20_000 })
+    client.connect('ws://x', 'nonce-one')
+    socket.open()
+    socket.receive(helloOk())
+    socket.close()
+
+    expect(() => client.send({
+      v: PROTOCOL_VERSION,
+      type: 'grant.revoke',
+      grantId: 'g-idle-expired' as never,
+    })).not.toThrow()
+
+    socket = new FakeSocket()
+    client.connect('ws://x', 'nonce-two')
+    socket.open()
+    socket.receive(helloOk())
+
+    expect(socket.sentFrames()).toContainEqual(expect.objectContaining({
+      type: 'grant.revoke',
+      grantId: 'g-idle-expired',
+    }))
+  })
+
+  it('recovers and queues a revoke when a connected socket write fails', () => {
+    let socket = new FakeSocket()
+    const client = new BridgeClient({ createSocket: () => socket, heartbeatMs: 20_000 })
+    const required: number[] = []
+    client.onPairingRequired(delayMs => required.push(delayMs))
+    client.connect('ws://x', 'nonce-one')
+    socket.open()
+    socket.receive(helloOk())
+    socket.failSend = true
+
+    expect(() => client.send({
+      v: PROTOCOL_VERSION,
+      type: 'grant.revoke',
+      grantId: 'g-write-failed' as never,
+    })).not.toThrow()
+    expect(client.state).toBe('reconnecting')
+    vi.advanceTimersByTime(500)
+    expect(required).toHaveLength(1)
+
+    socket = new FakeSocket()
+    client.connect('ws://x', 'nonce-two')
+    socket.open()
+    socket.receive(helloOk())
+    expect(socket.sentFrames()).toContainEqual(expect.objectContaining({
+      type: 'grant.revoke',
+      grantId: 'g-write-failed',
+    }))
+  })
+
+  it('drops queued revocations instead of sending them to a different logical session', () => {
+    let socket = new FakeSocket()
+    const client = new BridgeClient({ createSocket: () => socket, heartbeatMs: 20_000 })
+    const changed: number[] = []
+    client.onSessionChanged(() => changed.push(1))
+    client.connect('ws://x', 'nonce-one')
+    socket.open()
+    socket.receive(helloOk())
+    socket.close()
+    client.send({
+      v: PROTOCOL_VERSION,
+      type: 'grant.revoke',
+      grantId: 'g-old-session' as never,
+    })
+
+    socket = new FakeSocket()
+    client.connect('ws://x', 'nonce-two')
+    socket.open()
+    socket.receive(JSON.stringify({
+      v: PROTOCOL_VERSION,
+      type: 'hello.ok',
+      connectionId: ConnectionId('c2'),
+    }))
+
+    expect(changed).toEqual([1])
+    expect(socket.sentFrames().some(frame => frame.type === 'grant.revoke')).toBe(false)
   })
 
   it('forwards decoded frames to listeners', () => {

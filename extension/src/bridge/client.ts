@@ -3,7 +3,8 @@
  * Every inbound frame is validated by the protocol package; the client emits
  * typed state, forwards decoded frames, answers host pings, keeps the
  * service worker alive with heartbeat pings, and asks for a FRESH pairing
- * nonce (never a replay) after a dropped connection.
+ * nonce (never a replay) after a dropped connection. Grant revocations use
+ * a same-logical-session outbox so local expiry cannot be lost in transit.
  */
 import {
   bridgeError,
@@ -11,6 +12,7 @@ import {
   encodeFrame,
   PROTOCOL_VERSION,
   type BridgeFrame,
+  type GrantId,
   type PairingNonce,
 } from '@ycp424c/dsh-browser-bridge-protocol'
 
@@ -47,6 +49,8 @@ export class BridgeClient {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   /** The connection id of the last authenticated logical session. */
   private lastConnectionId: string | null = null
+  /** Revocations produced while the same logical session is disconnected. */
+  private readonly pendingRevokes = new Set<GrantId>()
   private readonly stateHandlers = new Set<(state: BridgeClientState) => void>()
   private readonly frameHandlers = new Set<(frame: BridgeFrame) => void>()
   private readonly pairingRequiredHandlers = new Set<(delayMs: number) => void>()
@@ -110,6 +114,7 @@ export class BridgeClient {
   close(): void {
     this.owned = false
     this.lastConnectionId = null
+    this.pendingRevokes.clear()
     this.clearReconnectTimer()
     this.clearHeartbeat()
     if (this.socket !== null) {
@@ -124,9 +129,23 @@ export class BridgeClient {
   send(frame: BridgeFrame): void {
     const socket = this.socket
     if (this.currentState !== 'connected' || socket === null) {
+      if (frame.type === 'grant.revoke' && this.owned) {
+        this.pendingRevokes.add(frame.grantId)
+        return
+      }
       throw bridgeError('bridge_disconnected', 'browser bridge is not connected', true)
     }
-    socket.send(encodeFrame(frame))
+    try {
+      socket.send(encodeFrame(frame))
+    } catch {
+      if (frame.type === 'grant.revoke' && this.owned) {
+        this.pendingRevokes.add(frame.grantId)
+        this.recoverTransport(socket)
+        return
+      }
+      this.recoverTransport(socket)
+      throw bridgeError('bridge_disconnected', 'browser bridge write failed', true)
+    }
   }
 
   private openSocket(): void {
@@ -137,7 +156,11 @@ export class BridgeClient {
       if (this.socket !== socket) return
       const nonce = this.pairingNonce
       if (nonce === null) return
-      socket.send(encodeFrame({ v: PROTOCOL_VERSION, type: 'hello', pairingNonce: nonce }))
+      try {
+        socket.send(encodeFrame({ v: PROTOCOL_VERSION, type: 'hello', pairingNonce: nonce }))
+      } catch {
+        this.recoverTransport(socket)
+      }
     })
     socket.onMessage(text => this.handleFrame(text, socket))
     socket.onClose(() => this.handleClose(socket))
@@ -149,15 +172,30 @@ export class BridgeClient {
       frame = decodeFrame(text)
     } catch {
       // Invalid frames never echo their payload; a broken peer is dropped.
-      socket.close()
+      this.recoverTransport(socket)
       return
     }
     if (frame.type === 'hello.ok') {
       // A different connection id means the old logical session is gone
       // (the host restarted or was replaced): local grants of that session
       // must be revoked before any new work can use them.
-      if (this.lastConnectionId !== null && frame.connectionId !== this.lastConnectionId) {
+      const sessionChanged = this.lastConnectionId !== null && frame.connectionId !== this.lastConnectionId
+      if (sessionChanged) {
+        // The new host cannot own records from the previous logical session.
+        this.pendingRevokes.clear()
         for (const handler of this.sessionChangedHandlers) handler()
+      } else {
+        // Reconcile local idle/tab revocations before publishing `connected`,
+        // so Host retries or new work cannot overtake the cleanup.
+        try {
+          for (const grantId of [...this.pendingRevokes]) {
+            socket.send(encodeFrame({ v: PROTOCOL_VERSION, type: 'grant.revoke', grantId }))
+            this.pendingRevokes.delete(grantId)
+          }
+        } catch {
+          this.recoverTransport(socket)
+          return
+        }
       }
       this.lastConnectionId = frame.connectionId
       this.setState('connected')
@@ -165,7 +203,12 @@ export class BridgeClient {
       return
     }
     if (frame.type === 'ping') {
-      socket.send(encodeFrame({ v: PROTOCOL_VERSION, type: 'pong' }))
+      try {
+        socket.send(encodeFrame({ v: PROTOCOL_VERSION, type: 'pong' }))
+      } catch {
+        this.recoverTransport(socket)
+        return
+      }
     }
     for (const handler of this.frameHandlers) handler(frame)
   }
@@ -181,6 +224,18 @@ export class BridgeClient {
       this.reconnectTimer = null
       for (const handler of this.pairingRequiredHandlers) handler(delay)
     }, delay)
+  }
+
+  /** Close a failed transport and enter the same fresh-nonce recovery path. */
+  private recoverTransport(socket: BridgeSocket): void {
+    if (this.socket !== socket) return
+    try {
+      socket.close()
+    } finally {
+      // Some adapters suppress their close callback for an explicit close;
+      // calling the transition directly makes synchronous send failure safe.
+      this.handleClose(socket)
+    }
   }
 
   /** Exponential backoff (base 500 ms, cap 10 s) with 0.5–1.0 jitter. */
@@ -200,7 +255,8 @@ export class BridgeClient {
       try {
         this.socket.send(encodeFrame({ v: PROTOCOL_VERSION, type: 'ping' }))
       } catch {
-        // The socket may be closing; the close handler owns recovery.
+        this.recoverTransport(this.socket)
+        return
       }
       this.startHeartbeat()
     }, this.heartbeatMs)
