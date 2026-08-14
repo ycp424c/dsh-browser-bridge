@@ -32,7 +32,7 @@
     "typescript": "^6.0.3",
     "vitest": "^4.1.10"
   },
-  "license": "BSD-3-Clause",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/ycp424c/dsh-browser-bridge.git"
