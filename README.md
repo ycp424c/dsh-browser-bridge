@@ -66,7 +66,7 @@ DSH agent runtime
 
 ## 浏览器工具
 
-当一个 prompt 拥有至少一个有效授权时，以下工具仅在该 turn 内存在：`browser_observe`、`browser_inspect`、`browser_screenshot`、`browser_act`、`browser_navigate`、`browser_wait`、`browser_console`、`browser_network`。
+当一个 prompt 拥有至少一个有效授权时，以下工具仅在该 turn 内存在：`browser_observe`、`browser_inspect`、`browser_screenshot`、`browser_act`、`browser_navigate`、`browser_wait`、`browser_console`、`browser_network`。Host 在 DSH claim 消息后、组装首个模型请求前只读校验 marker 并暴露工具 schema；真正的页面访问权仍要到 `agent/pre-step` 原子消费 grant 后才激活。这样首个请求就能看到浏览器工具；被拦截、删去 marker 或校验失败的 step 会被拒绝并撤销本次 pending grant，不能借“提前注册”获得页面权限或跨 turn 重放。
 
 | 工具 | 作用 |
 | --- | --- |

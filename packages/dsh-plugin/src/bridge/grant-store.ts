@@ -1,8 +1,8 @@
 /**
  * Connection/session/turn-bound grant state on the host side. Offers arrive
- * from providers (extension bridge, Vite broker); consumption happens at
- * `agent/pre-step` and binds one handle to exactly one (session, turn) with
- * the bound target's liveness checked atomically.
+ * from providers (extension bridge, Vite broker); read-only preview happens
+ * at `agent/inbox/claimed`, while consumption at `agent/pre-step` binds one
+ * handle to exactly one (session, turn).
  */
 import {
   bridgeError,
@@ -69,6 +69,23 @@ export class GrantStore {
   }
 
   /**
+   * Validate many handles for one turn without consuming them. This lets a
+   * step advertise the exact target-capability union before prompt assembly;
+   * authority is still committed only by {@link consumeBatch}.
+   */
+  previewBatch(
+    handles: readonly string[],
+    context: ConsumeContext,
+    guard?: (record: GrantRecord) => void,
+  ): GrantRecord[] {
+    const records = handles.map(handle => this.validate(handle, context))
+    if (guard !== undefined) {
+      for (const record of records) guard(record)
+    }
+    return records
+  }
+
+  /**
    * Consume one handle for a turn. The record is returned unchanged on
    * repeat consumption of the SAME turn; any other (session, turn)
    * combination fails closed.
@@ -94,12 +111,36 @@ export class GrantStore {
     context: ConsumeContext,
     guard?: (record: GrantRecord) => void,
   ): GrantRecord[] {
-    const records = handles.map(handle => this.validate(handle, context))
-    if (guard !== undefined) {
-      for (const record of records) guard(record)
-    }
+    const records = this.previewBatch(handles, context, guard)
     for (const record of records) record.turn = context.turn
     return records
+  }
+
+  /**
+   * Revoke claimed handles by ownership without requiring freshness or target
+   * liveness. This is the terminal path for a rejected inbox claim: expired or
+   * transiently disconnected grants must not survive for replay after a later
+   * reconnect. Unknown/foreign/other-turn handles are ignored without leaking
+   * their existence; explicitly preserved same-turn grants remain active.
+   */
+  revokeHandles(
+    handles: readonly string[],
+    context: ConsumeContext,
+    preserved: ReadonlySet<GrantId> = new Set(),
+  ): GrantRecord[] {
+    const affected: GrantRecord[] = []
+    for (const handle of new Set(handles)) {
+      const record = this.byHandle.get(handle)
+      if (record === undefined) continue
+      if (context.connectionId !== undefined && record.target.connectionId !== context.connectionId) continue
+      if (record.sessionId !== context.sessionId) continue
+      if (record.turn !== undefined && record.turn !== context.turn) continue
+      if (preserved.has(record.grantId)) continue
+      this.byHandle.delete(record.handle)
+      this.byGrantId.delete(record.grantId)
+      affected.push(record)
+    }
+    return affected
   }
 
   /** Validate one handle for a context WITHOUT mutating the record. */

@@ -1,13 +1,21 @@
 /**
- * Prompt marker consumption at `agent/pre-step`: replace non-secret handles
- * with sanitized page summaries, register turn-scoped browser tools, and
- * clean them up when the turn stops. Consumption and revocation flow through
- * the provider-neutral TargetCoordinator so Chrome and Vite pages share one
- * grant/turn lifecycle.
+ * Two-phase prompt attachment lifecycle:
+ *
+ * 1. `agent/inbox/claimed` previews non-secret handles and provisionally
+ *    registers model-visible tools before DSH assembles the request header.
+ * 2. `agent/pre-step` atomically consumes those handles, rewrites them to
+ *    sanitized page summaries, and activates execution authority.
+ *
+ * Consumption and revocation flow through the provider-neutral
+ * TargetCoordinator so Chrome and Vite pages share one grant/turn lifecycle.
  */
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { createUserMessage, type UserMessage } from '@deepseek-ai/dsh-llm'
-import { extractMarkers, type BrowserTargetDescriptor } from '@ycp424c/dsh-browser-bridge-protocol'
+import {
+  extractMarkers,
+  type BrowserTargetDescriptor,
+  type GrantId,
+} from '@ycp424c/dsh-browser-bridge-protocol'
 import type { GrantRecord } from './bridge/grant-store.ts'
 import type { TargetCoordinator } from './targets/coordinator.ts'
 import type { ActiveTurn } from './tools/register.ts'
@@ -42,7 +50,7 @@ export interface PreStepPayload {
 
 export interface PreStepHandler {
   (payload: PreStepPayload, next: () => Promise<PreStepDecision>): Promise<PreStepDecision>
-  onTurnStopping(agent: Agent, turn: number): void
+  onInboxClaimed(agent: Agent, message: UserMessage, turn: number): void
   onTurnEnd(sessionId: string, turn: number): void
   dispose(agent: Agent): void
   disposeAll(): void
@@ -112,6 +120,36 @@ function rewriteMessages(messages: readonly UserMessage[], summaries: ReadonlyMa
 export function createPreStepHandler(deps: PreStepHandlerDeps): PreStepHandler {
   const active = new Map<Agent, ActiveTurn>()
 
+  const disposeTools = (current: ActiveTurn): void => {
+    const disposers = current.disposers
+    current.disposers = []
+    for (const dispose of disposers) {
+      try {
+        dispose()
+      } catch (error) {
+        // A disposer must not break the remaining cleanup.
+        void error
+      }
+    }
+  }
+
+  const replaceTools = (current: ActiveTurn): void => {
+    // Tool definitions depend on both the capability union and provider set.
+    // Re-register the exact surface whenever provisional pages change.
+    disposeTools(current)
+    current.disposers = deps.registerTurnTools(current.agent, current)
+  }
+
+  const revokeGrantIds = (grantIds: Iterable<GrantId>): void => {
+    for (const grantId of new Set(grantIds)) {
+      try {
+        deps.coordinator.revoke(grantId)
+      } catch {
+        // Continue revoking the remaining providers.
+      }
+    }
+  }
+
   const cleanup = (agent: Agent, turn: number): void => {
     const current = active.get(agent)
     if (current === undefined || current.turn !== turn) return
@@ -122,19 +160,71 @@ export function createPreStepHandler(deps: PreStepHandlerDeps): PreStepHandler {
     current.removeAbortListener()
     // Remove tool registrations first, then revoke every grant of the turn
     // across ALL owning providers (Chrome extension and Vite broker alike).
-    for (const dispose of current.disposers) {
-      try {
-        dispose()
-      } catch (error) {
-        // A disposer must not break the remaining cleanup.
-        void error
-      }
-    }
+    disposeTools(current)
+    current.authorizedGrantIds.clear()
+    // Claimed-but-unconsumed grants have no turn binding yet, so revoke the
+    // exact pages as well as the consumed session/turn batch.
+    revokeGrantIds(current.pages.map(page => page.grantId))
     try {
       deps.coordinator.revokeTurn(current.sessionId, turn)
     } catch {
       // The target may already be gone; the store still drops records.
     }
+  }
+
+  /** Remove pages previewed for this step but not committed by pre-step. */
+  const rollbackProvisional = (agent: Agent, turn: number): boolean => {
+    const current = active.get(agent)
+    if (current === undefined || current.turn !== turn) return false
+    const committed = current.pages.filter(page => current.authorizedGrantIds.has(page.grantId))
+    const dropped = current.pages.filter(page => !current.authorizedGrantIds.has(page.grantId))
+    if (dropped.length === 0) return false
+    current.pages.splice(0, current.pages.length, ...committed)
+    // Claimed messages leave the inbox permanently. Pages removed by policy
+    // or failed validation must be revoked, never replayed by a later turn.
+    revokeGrantIds(dropped.map(page => page.grantId))
+    if (committed.length === 0 && !current.activated) {
+      active.delete(agent)
+      disposeTools(current)
+      return true
+    }
+    try {
+      replaceTools(current)
+    } catch {
+      // If the previous exact tool surface cannot be restored, fail closed
+      // and revoke the already-active turn rather than leaving a partial set.
+      cleanup(agent, turn)
+    }
+    return true
+  }
+
+  const createTurnState = (agent: Agent, sessionId: string, turn: number): ActiveTurn => ({
+    agent,
+    sessionId,
+    turn,
+    pages: [],
+    authorizedGrantIds: new Set(),
+    disposers: [],
+    activated: false,
+    removeAbortListener: () => {},
+  })
+
+  const appendRecords = (current: ActiveTurn, records: readonly GrantRecord[]): GrantRecord[] => {
+    const aliases = new Map(current.pages.map(page => [page.grantId, page.alias]))
+    let nextAlias = current.pages.reduce((maximum, page) => {
+      const match = /^page_(\d+)$/.exec(page.alias)
+      return match === null ? maximum : Math.max(maximum, Number(match[1]))
+    }, 0) + 1
+    const added: GrantRecord[] = []
+    for (const record of records) {
+      if (aliases.has(record.grantId)) continue
+      const alias = `page_${nextAlias}`
+      nextAlias += 1
+      aliases.set(record.grantId, alias)
+      current.pages.push({ alias, grantId: record.grantId, target: record.target.descriptor })
+      added.push(record)
+    }
+    return added
   }
 
   const handler: PreStepHandler = async (payload, next) => {
@@ -149,90 +239,86 @@ export function createPreStepHandler(deps: PreStepHandlerDeps): PreStepHandler {
     }
 
     const decision = await next()
-    if (decision.kind === 'reject') return decision
+    if (decision.kind === 'reject') {
+      rollbackProvisional(payload.agent, payload.turn)
+      return decision
+    }
 
     const markers = collectMarkers(decision.messages)
     if (markers.length === 0) {
-      // A continuation with no new markers keeps the current turn's tools.
+      // A plain continuation keeps committed tools. If this step claimed a
+      // marker that a downstream policy stripped, reject instead: DSH already
+      // froze the provisional schema before pre-step, so entering would expose
+      // a phantom tool surface with no live executor.
+      const stripped = rollbackProvisional(payload.agent, payload.turn)
+      if (stripped) return { kind: 'reject' }
       return decision
     }
 
     const sessionId = String(payload.agent.session.header.id)
     const turn = payload.turn
 
-    // Steering may add markers to the SAME turn: the new pages are appended
-    // to the active turn's shared pages array so the already-registered tool
-    // closures (which close over that exact array) can resolve page_2+.
     const current = active.get(payload.agent)
-    const pages = current?.pages ?? []
+    // Every accepted marker must have been previewed synchronously at the
+    // claim boundary. This guarantees that its tools were part of the prompt
+    // assembly; downstream plugins cannot smuggle in late authority.
+    if (current === undefined || current.turn !== turn) return { kind: 'reject' }
+    const pages = current.pages
     const summaries = new Map<string, string>()
     const aliasByGrantId = new Map(pages.map(page => [page.grantId, page.alias]))
 
-    // ATOMIC marker consumption: every handle is validated (session, turn,
-    // expiry, target liveness) before ANY record is committed, so a single
-    // unknown/expired/foreign marker rejects the whole step without
-    // consuming the valid handles or extending the active turn's pages.
-    let records: GrantRecord[]
+    // A downstream policy must preserve every newly claimed grant. A reduced
+    // marker set cannot safely reuse the already-frozen prompt assembly.
+    let previewed: GrantRecord[]
     try {
-      records = deps.coordinator.consumeBatch(markers.map(marker => marker.handle), {
+      previewed = deps.coordinator.previewBatch(markers.map(marker => marker.handle), {
         sessionId,
         turn,
       })
     } catch {
       // Unknown, expired, foreign, or dead-target handle: reject the step.
+      rollbackProvisional(payload.agent, turn)
+      return { kind: 'reject' }
+    }
+    const previewedGrantIds = new Set(previewed.map(record => record.grantId))
+    const provisionalGrantIds = pages
+      .filter(page => !current.authorizedGrantIds.has(page.grantId))
+      .map(page => page.grantId)
+    if (provisionalGrantIds.some(grantId => !previewedGrantIds.has(grantId))) {
+      rollbackProvisional(payload.agent, turn)
+      return { kind: 'reject' }
+    }
+    if (previewed.some(record => !aliasByGrantId.has(record.grantId))) {
+      rollbackProvisional(payload.agent, turn)
+      return { kind: 'reject' }
+    }
+
+    // ATOMIC marker consumption validates again immediately before commit, so
+    // expiry or disconnect after claim still rejects the whole batch.
+    let records: GrantRecord[]
+    try {
+      records = deps.coordinator.consumeBatch(markers.map(marker => marker.handle), { sessionId, turn })
+    } catch {
+      rollbackProvisional(payload.agent, turn)
       return { kind: 'reject' }
     }
     for (let index = 0; index < markers.length; index += 1) {
       const marker = markers[index]!.marker
       const record = records[index]!
-      let alias = aliasByGrantId.get(record.grantId)
-      if (alias === undefined) {
-        alias = `page_${pages.length + 1}`
-        aliasByGrantId.set(record.grantId, alias)
-        pages.push({ alias, grantId: record.grantId, target: record.target.descriptor })
-      }
+      const alias = aliasByGrantId.get(record.grantId)!
+      current.authorizedGrantIds.add(record.grantId)
       summaries.set(marker, renderSummary(alias, record.target.descriptor))
     }
 
-    if (current === undefined) {
-      const turnState: ActiveTurn = {
-        agent: payload.agent,
-        sessionId,
-        turn,
-        pages,
-        disposers: [],
-        removeAbortListener: () => {},
-      }
-      try {
-        turnState.disposers = deps.registerTurnTools(payload.agent, turnState)
-      } catch (error) {
-        // Registration failed: roll back tools and the already-consumed
-        // grants rather than entering a partial turn. The production
-        // registrar is transactional; this loop also protects custom deps.
-        for (const dispose of turnState.disposers) {
-          try {
-            dispose()
-          } catch {
-            // Keep unwinding the failed turn.
-          }
-        }
-        try {
-          deps.coordinator.revokeTurn(sessionId, turn)
-        } catch {
-          // The target may already be gone; the store still drops records.
-        }
-        active.delete(payload.agent)
-        throw error
-      }
-      // DSH dispatches `agent/turn-stopping` ONLY on the normal completion
-      // path; a cancelled turn aborts the shared phase signal instead. The
-      // once-abort listener guarantees the tools and grants are cleaned on
-      // that path too, and is removed by every other cleanup path.
+    if (!current.activated) {
+      // Abort owns cancellation cleanup. Normal completion is owned by the
+      // durable turn/end event because turn-stopping listeners may steer and
+      // continue the SAME turn.
       const signal = payload.signal
       const onAbort = (): void => cleanup(payload.agent, turn)
       signal.addEventListener('abort', onAbort, { once: true })
-      turnState.removeAbortListener = () => signal.removeEventListener('abort', onAbort)
-      active.set(payload.agent, turnState)
+      current.removeAbortListener = () => signal.removeEventListener('abort', onAbort)
+      current.activated = true
     }
 
     const rewritten = rewriteMessages(decision.messages, summaries)
@@ -250,7 +336,54 @@ export function createPreStepHandler(deps: PreStepHandlerDeps): PreStepHandler {
     return { kind: 'enter', messages: rewritten }
   }
 
-  handler.onTurnStopping = (agent, turn) => cleanup(agent, turn)
+  handler.onInboxClaimed = (agent, message, turn) => {
+    const stale = active.get(agent)
+    if (stale !== undefined && stale.turn !== turn) cleanup(agent, stale.turn)
+
+    const markers = collectMarkers([message])
+    if (markers.length === 0) return
+    const sessionId = String(agent.session.header.id)
+    let current = active.get(agent)
+    let records: GrantRecord[]
+    try {
+      records = deps.coordinator.previewBatch(markers.map(marker => marker.handle), { sessionId, turn })
+    } catch {
+      // Revoke every owned pending handle even when it is expired or its target
+      // is transiently disconnected, while preserving grants authorized by an
+      // older step of this same turn.
+      const authorized = current?.authorizedGrantIds ?? new Set<GrantId>()
+      deps.coordinator.revokeHandles(markers.map(marker => marker.handle), { sessionId, turn }, authorized)
+      return
+    }
+
+    const created = current === undefined
+    if (current === undefined) {
+      current = createTurnState(agent, sessionId, turn)
+      active.set(agent, current)
+    }
+    const previousPages = [...current.pages]
+    const added = appendRecords(current, records)
+    if (added.length === 0) return
+    try {
+      replaceTools(current)
+    } catch (error) {
+      // Restore the exact prior surface for same-turn steering, revoke only
+      // the newly claimed offers, and preserve any committed older pages.
+      current.pages.splice(0, current.pages.length, ...previousPages)
+      try {
+        replaceTools(current)
+      } catch {
+        cleanup(agent, turn)
+      }
+      revokeGrantIds(added.map(record => record.grantId))
+      if (created && active.get(agent) === current) {
+        active.delete(agent)
+        disposeTools(current)
+      }
+      throw error
+    }
+  }
+
   handler.onTurnEnd = (sessionId, turn) => {
     for (const [agent, current] of active) {
       if (current.sessionId === sessionId && current.turn === turn) cleanup(agent, turn)

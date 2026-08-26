@@ -6,6 +6,7 @@
  */
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { AttachmentStore } from '@deepseek-ai/dsh-attachment'
+import { bridgeError, type GrantId } from '@ycp424c/dsh-browser-bridge-protocol'
 import type { TargetCoordinator } from '../targets/coordinator.ts'
 import {
   createBrowserTool,
@@ -20,7 +21,11 @@ export interface ActiveTurn {
   sessionId: string
   turn: number
   pages: PageAlias[]
+  /** Grants atomically consumed by pre-step; provisional aliases are absent. */
+  authorizedGrantIds: Set<GrantId>
   disposers: Array<() => void>
+  /** Whether pre-step committed this provisional turn and installed cleanup. */
+  activated: boolean
   /** Detach the once-abort cleanup listener (every cleanup path removes it). */
   removeAbortListener: () => void
 }
@@ -52,7 +57,12 @@ export function registerTurnTools(
     .filter(operation => union.has(operation))
     .map(operation => createBrowserTool(operation, {
       resolvePage: page => resolvePageAlias(turn.pages, page),
-      request: (grantId, operation, args, signal) => deps.coordinator.request(grantId, operation, args, signal),
+      request: (grantId, operation, args, signal) => {
+        if (!turn.authorizedGrantIds.has(grantId)) {
+          throw bridgeError('permission_denied', 'grant: page grant is not active for this turn', false)
+        }
+        return deps.coordinator.request(grantId, operation, args, signal)
+      },
       attachments: deps.attachments,
       resolveModelInfo: deps.resolveModelInfo,
       // The advanced argument surface (fill/actions/expect/targets/text/

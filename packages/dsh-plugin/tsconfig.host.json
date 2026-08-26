@@ -28,6 +28,7 @@
     "tests/grant-store.spec.ts",
     "tests/tools.spec.ts",
     "tests/apply.spec.ts",
+    "tests/composition.e2e.spec.ts",
     "tsdown.config.ts"
   ]
 }

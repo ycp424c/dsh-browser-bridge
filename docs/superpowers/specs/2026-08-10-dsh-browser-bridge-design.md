@@ -170,21 +170,29 @@ The grant secret travels out of band over the authenticated extension/host
 bridge. During reference serialization, the client plugin registers a
 non-secret, single-use correlation handle with the host plugin and serializes a
 safe reference marker. The handle alone grants no authority: the host also
-checks bridge session, conversation, turn, tab, and expiry. During
-`agent/pre-step`, the host consumes the handle and replaces the marker with a
-sanitized page summary before model inference. Grant secrets never enter
+checks bridge session, conversation, turn, tab, and expiry. At
+`agent/inbox/claimed`, the host previews the handle without consuming it and
+provisionally registers the exact tool schema before DSH assembles the first
+model request. During `agent/pre-step`, the host atomically consumes the handle,
+activates execution authority, and replaces the marker with a sanitized page
+summary before model inference. Grant secrets never enter
 message text, model input, model tool arguments, user-visible conversation text,
 or normal logs. The model receives stable aliases such as `page_1` plus
 sanitized title and URL metadata.
 
 ### 7.3 Applying and revoking a grant
 
-The host plugin registers browser tools only for a turn with at least one valid
-grant. Tools close over validated capability records; the model cannot supply a
-raw `tabId` or token to widen its scope.
+The host plugin provisionally registers browser tool schemas only for a turn
+whose claimed message contains at least one read-valid grant. Tool execution
+remains denied until pre-step consumes the grant. Tools close over validated
+capability records; the model cannot supply a raw `tabId` or token to widen its
+scope.
 
 Grants expire when the turn completes, is cancelled, or is removed from a
 queue; when the referenced tab closes; or when the bridge session terminates.
+Completion is observed at durable `turn/end`, not `agent/turn-stopping`, whose
+listeners may still steer and continue the same turn. A claimed marker rejected
+or removed by pre-step policy revokes its pending grant immediately.
 The next prompt must attach tabs again. A popup or newly opened tab is never
 authorized implicitly.
 

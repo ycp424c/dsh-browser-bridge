@@ -213,10 +213,15 @@ DSH Web 提供两个引用入口：
    不能继承 grant。
 3. Client 只向 prompt 序列化一次性关联 marker；连接凭证与 grant authority
    不进入消息文本。
-4. `agent/pre-step` 消费 marker，回读 target，生成 `page_1`、`page_2` 等别名，
-   并注入净化后的 URL、标题与 capability 摘要。
-5. Host 仅为本轮有效页面注册工具。工具闭包持有已验证 grant，模型不能通过
-   构造 `targetId`、provider 或 alias 扩权。
+4. `agent/inbox/claimed` 只读校验 marker 与 target liveness，在首个模型请求组装
+   前按 capability 并集注册工具 schema；此时工具执行仍无 grant authority。
+5. `agent/pre-step` 原子消费 marker，激活对应 grant，生成 `page_1`、`page_2`
+   等别名，并注入净化后的 URL、标题与 capability 摘要。工具闭包持有已验证
+   grant，模型不能通过构造 `targetId`、provider 或 alias 扩权。
+
+被 pre-step policy 拒绝或删去的 claimed marker 立即撤销 pending grant；正常
+完成只在 durable `turn/end` 清理，因为 `agent/turn-stopping` listener 仍可 steer
+并继续同一 turn。
 
 工具链如下：
 

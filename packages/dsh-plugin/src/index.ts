@@ -144,13 +144,17 @@ export function apply(ctx: Context, config: ConfigShape): void {
       grantTtlMs: resolved.grantTtlMs,
     }).register(ctx.webServer)
 
-    const offPreStep = ctx.on('agent/pre-step', (payload, next) => preStep(payload, next))
-    const offTurnStopping = ctx.on('agent/turn-stopping', ({ agent, turn }) => {
-      preStep.onTurnStopping(agent, turn)
+    // Claim notifications are synchronous and fire immediately before DSH
+    // assembles the system prompt/request header. Previewing here makes the
+    // exact browser tool surface visible in the first model request; the
+    // later pre-step remains the authority-commit boundary.
+    const offInboxClaimed = ctx.on('agent/inbox/claimed', ({ agent, message, turn }) => {
+      preStep.onInboxClaimed(agent, message, turn)
     })
-    // Durable turn/end covers every terminal outcome, including model and
-    // adapter errors that bypass agent/turn-stopping and do not abort the
-    // turn signal. The normal stopping path remains an idempotent fast path.
+    const offPreStep = ctx.on('agent/pre-step', (payload, next) => preStep(payload, next))
+    // turn-stopping is NOT terminal: another listener may steer and continue
+    // the same turn. Durable turn/end covers every actual terminal outcome,
+    // including model and adapter errors that do not abort the turn signal.
     const offTurnEnd = ctx.on('session/event', (session, event) => {
       if (event.type === 'turn/end') preStep.onTurnEnd(String(session.id), event.data.turn)
     })
@@ -168,8 +172,8 @@ export function apply(ctx: Context, config: ConfigShape): void {
       offPair()
       offWs()
       offViteRoutes()
+      offInboxClaimed()
       offPreStep()
-      offTurnStopping()
       offTurnEnd()
       offDisposed()
       // Terminal: remove turn-scoped tools, then revoke every remaining

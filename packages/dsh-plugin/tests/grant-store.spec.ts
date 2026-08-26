@@ -29,6 +29,61 @@ function offer(grants: GrantStore, grantId: string, connectionId: string, sessio
 }
 
 describe('grant store', () => {
+  it('previews a batch without binding the handles to that turn', () => {
+    const grants = new GrantStore()
+    const connectionId = ConnectionId('c1')
+    const record = grants.offer({
+      grantId: GrantId('g-preview'),
+      sessionId: 'session-a',
+      expiresAt: Date.now() + 30_000,
+      target: chromeBinding(connectionId),
+    })
+
+    expect(grants.previewBatch(
+      [record.handle],
+      { connectionId, sessionId: 'session-a', turn: 1 },
+    )).toEqual([record])
+    expect(record.turn).toBeUndefined()
+    expect(grants.consume(
+      record.handle,
+      { connectionId, sessionId: 'session-a', turn: 2 },
+    ).turn).toBe(2)
+  })
+
+  it('revokes owned claimed handles even when expired while preserving foreign or other-turn grants', () => {
+    let now = 1_000
+    const grants = new GrantStore({ now: () => now })
+    const connectionId = ConnectionId('c1')
+    const expired = grants.offer({
+      grantId: GrantId('g-expired-claim'),
+      sessionId: 'session-a',
+      expiresAt: 1_500,
+      target: chromeBinding(connectionId),
+    })
+    const foreign = grants.offer({
+      grantId: GrantId('g-foreign-claim'),
+      sessionId: 'session-b',
+      expiresAt: 5_000,
+      target: chromeBinding(connectionId),
+    })
+    const otherTurn = grants.offer({
+      grantId: GrantId('g-other-turn'),
+      sessionId: 'session-a',
+      expiresAt: 5_000,
+      target: chromeBinding(connectionId),
+    })
+    grants.consume(otherTurn.handle, { connectionId, sessionId: 'session-a', turn: 2 })
+    now = 2_000
+
+    expect(grants.revokeHandles(
+      [expired.handle, foreign.handle, otherTurn.handle],
+      { connectionId, sessionId: 'session-a', turn: 1 },
+    ).map(record => record.grantId)).toEqual([GrantId('g-expired-claim')])
+    expect(() => grants.resolve(GrantId('g-expired-claim'))).toThrow(/unknown grant/)
+    expect(grants.resolve(GrantId('g-foreign-claim'))).toBe(foreign)
+    expect(grants.resolve(GrantId('g-other-turn'))).toBe(otherTurn)
+  })
+
   it('binds one handle to one turn and rejects cross-session consumption', () => {
     let now = 1_000
     const grants = new GrantStore({ now: () => now })

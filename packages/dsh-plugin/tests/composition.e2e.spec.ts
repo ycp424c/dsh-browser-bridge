@@ -6,9 +6,17 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
-import { agentEvents, Inbox, type Agent, type PreStepDecision } from '@deepseek-ai/dsh-agent'
-import { CallId, createUserMessage } from '@deepseek-ai/dsh-llm'
-import { Session, type UserMessage } from '@deepseek-ai/dsh-session'
+import AgentRegistry, { agentEvents, Inbox, type Agent, type PreStepDecision } from '@deepseek-ai/dsh-agent'
+import AgentLoop from '@deepseek-ai/dsh-agent-loop'
+import LlmRuntime, {
+  CallId,
+  createUserMessage,
+  LlmAdapter,
+  type GenerateOptions,
+  type LlmResolvedModelInfo,
+  type StreamChunk,
+} from '@deepseek-ai/dsh-llm'
+import SessionStore, { Session, type UserMessage } from '@deepseek-ai/dsh-session'
 import { SessionId, SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session/types'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { type ToolRunContext } from '@deepseek-ai/dsh-tools'
@@ -20,7 +28,7 @@ import { FakeLlm } from './fake-llm.ts'
 import {
   GrantId, newGrantId, PROTOCOL_VERSION, VITE_PAGE_PROTOCOL_VERSION, encodeMarker,
   type BridgeFrame, type GrantAcceptedFrame, type GrantPutFrame,
-  type HelloOkFrame, type TabDescriptor, type ToolCallFrame, type ToolResultFrame,
+  type HelloOkFrame, type JsonValue, type TabDescriptor, type ToolCallFrame, type ToolResultFrame,
 } from '@ycp424c/dsh-browser-bridge-protocol'
 
 const EXT_A = 'chrome-extension://abcdefghijklmnopabcdefghijklmnop'
@@ -28,6 +36,23 @@ const FIXTURE_URL = 'http://127.0.0.1:4173/'
 const TAB: TabDescriptor = { tabId: 7, windowId: 2, title: 'Fixture', url: FIXTURE_URL }
 
 const pluginDir = join(import.meta.dirname, '..')
+
+/** One-response adapter that captures the exact first model request. */
+class CaptureAdapter extends LlmAdapter {
+  readonly requests: GenerateOptions[] = []
+
+  resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
+    return Promise.resolve({ provider, id: model, name: model, inputModalities: ['text', 'image'] })
+  }
+
+  async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
+    this.requests.push(options)
+    yield { type: 'block-start', index: 0, blockType: 'text' }
+    yield { type: 'text-delta', index: 0, text: 'done' }
+    yield { type: 'block-end', index: 0, block: { type: 'text', text: 'done' } }
+    yield { type: 'finish', reason: { kind: 'stop' } }
+  }
+}
 
 /** Real versioned protocol peer over a real WebSocket. */
 class ExtensionPeer {
@@ -95,7 +120,7 @@ class ExtensionPeer {
     })
   }
 
-  reply(call: ToolCallFrame, value: unknown): void {
+  reply(call: ToolCallFrame, value: JsonValue): void {
     const frame: ToolResultFrame = {
       v: PROTOCOL_VERSION,
       type: 'tool.result',
@@ -195,10 +220,18 @@ class VitePeer {
 async function stubAgent(ctx: Context, id: string): Promise<Agent> {
   const sessionId = SessionId(id)
   const session = Session.create(sessionId, [], { version: SESSION_FORMAT_VERSION, id: sessionId, createdAt: 0, cwd: '/tmp' })
-  const agent = {
+  let agent!: Agent
+  const inbox = new Inbox(session, {
+    inserted: () => {},
+    discarded: () => {},
+    claimed: (message, turn) => {
+      agentEvents(ctx, agent).emit('agent/inbox/claimed', { message, turn })
+    },
+  })
+  agent = {
     id: sessionId,
     session,
-    inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
+    inbox,
     status: 'idle',
     options: {},
     send: () => {},
@@ -241,8 +274,13 @@ async function proposeStep(ctx: Context, agent: Agent, message: UserMessage, tur
   )
 }
 
-async function fireTurnStopping(ctx: Context, agent: Agent, turn: number): Promise<void> {
-  await agentEvents(ctx, agent).serial('agent/turn-stopping', { turn, signal: new AbortController().signal })
+function fireTurnEnd(ctx: Context, agent: Agent, turn: number): void {
+  ctx.emit('session/event', agent.session, {
+    type: 'turn/end',
+    seq: 1,
+    time: Date.now(),
+    data: { turn, reason: { kind: 'completed' } },
+  })
 }
 
 function executionContext(signal: AbortSignal, agent: Agent): ToolRunContext {
@@ -263,29 +301,21 @@ interface Composition {
   cleanup(): Promise<void>
 }
 
-async function makeComposition(): Promise<Composition> {
+async function makeProfileDir(): Promise<string> {
   const profileDir = await mkdtemp(join(tmpdir(), 'dsh-bridge-profile-'))
   await mkdir(join(profileDir, 'node_modules/@ycp424c'), { recursive: true })
   await symlink(pluginDir, join(profileDir, 'node_modules/@ycp424c/dsh-browser-bridge'), 'dir')
-  // An empty base file plus the plugin's one-row profile bundle patch.
   await writeFile(join(profileDir, 'cordis.yml'), '[]\n')
+  return profileDir
+}
 
-  const ctx = new Context()
-  await ctx.plugin(WebServer, { host: '127.0.0.1', port: 0 })
-  await ctx.plugin(SystemPrompt)
-  await ctx.plugin(ToolRegistry)
-  // The bridge plugin owns the attachment dependency. The agent scope minted
-  // below intentionally mirrors DSH 0810's narrower AgentLoop dependencies.
-  await ctx.plugin(FakeAttachments)
-  await ctx.plugin(FakeLlm)
+async function mountBridge(ctx: Context, profileDir: string): Promise<void> {
   await ctx.plugin(Loader, { baseUrl: pathToFileURL(profileDir).href })
   ctx.loader.builtins.include = Include
   await ctx.loader.create({
-    id: 'include',
     name: 'cordis:include',
     config: {
       path: pathToFileURL(join(profileDir, 'cordis.yml')).href,
-      // The profile bundle patch: one row mounting the external plugin.
       patches: [{
         insert: [{
           id: 'dsh-browser-bridge',
@@ -296,6 +326,20 @@ async function makeComposition(): Promise<Composition> {
     },
   })
   await ctx.loader.await()
+}
+
+async function makeComposition(): Promise<Composition> {
+  const profileDir = await makeProfileDir()
+
+  const ctx = new Context()
+  await ctx.plugin(WebServer, { host: '127.0.0.1', port: 0 })
+  await ctx.plugin(SystemPrompt)
+  await ctx.plugin(ToolRegistry)
+  // The bridge plugin owns the attachment dependency. The agent scope minted
+  // below intentionally mirrors DSH 0810's narrower AgentLoop dependencies.
+  await ctx.plugin(FakeAttachments)
+  await ctx.plugin(FakeLlm)
+  await mountBridge(ctx, profileDir)
   const agent = await stubAgent(ctx, 'session-composition')
   const port = ctx.webServer.port
   const baseUrl = `http://127.0.0.1:${port}`
@@ -310,6 +354,54 @@ async function makeComposition(): Promise<Composition> {
       await rm(profileDir, { recursive: true, force: true })
     },
   }
+}
+
+interface AgentLoopComposition {
+  ctx: Context
+  baseUrl: string
+  wsUrl: string
+  agent: Agent
+  adapter: CaptureAdapter
+  cleanup(): Promise<void>
+}
+
+async function makeAgentLoopComposition(): Promise<AgentLoopComposition> {
+  const profileDir = await makeProfileDir()
+  const ctx = new Context()
+  await ctx.plugin(WebServer, { host: '127.0.0.1', port: 0 })
+  await ctx.plugin(LlmRuntime)
+  await ctx.plugin(SessionStore)
+  await ctx.plugin(SystemPrompt)
+  await ctx.plugin(ToolRegistry)
+  await ctx.plugin(AgentRegistry)
+  await ctx.plugin(FakeAttachments)
+  await ctx.plugin(AgentLoop, { agents: [] })
+  await mountBridge(ctx, profileDir)
+  const adapter = new CaptureAdapter()
+  ctx.llm.registerAdapter(['mock'], adapter)
+  const agent = ctx.agentLoop.create(SessionId('session-agent-loop'), { provider: 'mock', model: 'mock' })
+  const port = ctx.webServer.port
+  return {
+    ctx,
+    baseUrl: `http://127.0.0.1:${port}`,
+    wsUrl: `ws://127.0.0.1:${port}/dsh-browser-bridge/ws`,
+    agent,
+    adapter,
+    cleanup: async () => {
+      await ctx.fiber.dispose()
+      await rm(profileDir, { recursive: true, force: true })
+    },
+  }
+}
+
+function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
+  return new Promise(resolve => {
+    const dispose = ctx.on('agent/status', ({ agent: subject, status }) => {
+      if (subject !== agent || status !== 'idle') return
+      dispose()
+      resolve()
+    })
+  })
 }
 
 async function fetchPairingNonce(baseUrl: string): Promise<string> {
@@ -330,6 +422,33 @@ describe('DSH composition', () => {
   afterEach(async () => {
     await composition?.cleanup()
     composition = null
+  })
+
+  it('advertises attached browser tools in the first real AgentLoop request', async () => {
+    const loop = await makeAgentLoopComposition()
+    const peer = new ExtensionPeer()
+    try {
+      const nonce = await fetchPairingNonce(loop.baseUrl)
+      await peer.connect(loop.wsUrl, nonce)
+      const { handle } = await peer.putGrant(String(loop.agent.session.header.id), TAB)
+      const idle = waitForIdle(loop.ctx, loop.agent)
+      loop.agent.followup(userMessage(`verify ${encodeMarker(handle)}`))
+      await idle
+
+      expect(loop.adapter.requests).toHaveLength(1)
+      expect(loop.adapter.requests[0]?.tools?.map(tool => tool.name)).toContain('browser_observe')
+      const header = loop.agent.session.events.find(event => event.type === 'request/header')
+      expect(header?.type === 'request/header' && header.data.header.tools?.map(tool => tool.name))
+        .toContain('browser_observe')
+      expect(loop.agent.ctx.tools.get('browser_observe', loop.agent)).toBeUndefined()
+      await expect(peer.nextFrame(frame => frame.type === 'grant.revoke')).resolves.toMatchObject({
+        type: 'grant.revoke',
+        grantId: peer.lastGrantId,
+      })
+    } finally {
+      peer.close()
+      await loop.cleanup()
+    }
   })
 
   it('runs the full prompt-scoped grant loop over the real bridge', async () => {
@@ -354,7 +473,7 @@ describe('DSH composition', () => {
       peer.reply(call, { page: { url: FIXTURE_URL, title: 'Fixture' }, nodes: [] })
       await expect(executing).resolves.toBeDefined()
 
-      await fireTurnStopping(ctx, agent, 1)
+      fireTurnEnd(ctx, agent, 1)
       expect(agent.ctx.tools.get('browser_observe', agent)).toBeUndefined()
       const revoke = await peer.nextFrame(frame => frame.type === 'grant.revoke')
       expect(revoke).toMatchObject({ type: 'grant.revoke', grantId: peer.lastGrantId })
@@ -378,7 +497,7 @@ describe('DSH composition', () => {
       expect(continuation.kind).toBe('enter')
       expect(agent.ctx.tools.get('browser_observe', agent)).toBeDefined()
 
-      await fireTurnStopping(ctx, agent, 1)
+      fireTurnEnd(ctx, agent, 1)
       const second = await proposeStep(ctx, agent, userMessage(`again ${encodeMarker(handle)}`), 2)
       expect(second.kind).toBe('reject')
       expect(agent.ctx.tools.get('browser_observe', agent)).toBeUndefined()
@@ -398,12 +517,7 @@ describe('DSH composition', () => {
       await proposeStep(ctx, agent, userMessage(`verify ${encodeMarker(handle)}`), 1)
       expect(agent.ctx.tools.get('browser_observe', agent)).toBeDefined()
 
-      ctx.emit('session/event', agent.session, {
-        type: 'turn/end',
-        seq: 1,
-        time: Date.now(),
-        data: { turn: 1, reason: { kind: 'completed' } },
-      })
+      fireTurnEnd(ctx, agent, 1)
 
       expect(agent.ctx.tools.get('browser_observe', agent)).toBeUndefined()
       await expect(peer.nextFrame(frame => frame.type === 'grant.revoke')).resolves.toMatchObject({
@@ -458,7 +572,7 @@ describe('DSH composition', () => {
       })
       await expect(executing).resolves.toMatchObject({ page: { url: 'http://127.0.0.1:5173/' } })
 
-      await fireTurnStopping(ctx, agent, 1)
+      fireTurnEnd(ctx, agent, 1)
       expect(agent.ctx.tools.get('browser_observe', agent)).toBeUndefined()
       const revoke = await vite.nextFrame(frame => frame.type === 'target.revoke')
       expect(revoke).toMatchObject({ type: 'target.revoke' })
@@ -489,7 +603,7 @@ describe('DSH composition', () => {
       const { handle } = await peer.putGrant(String(agent.session.header.id), TAB)
       await proposeStep(ctx, agent, userMessage(`verify ${encodeMarker(handle)}`), 1)
       expect(ctx.tools.get('browser_observe')).toBeUndefined()
-      await fireTurnStopping(ctx, agent, 1)
+      fireTurnEnd(ctx, agent, 1)
       expect(agent.ctx.tools.get('browser_observe', agent)).toBeUndefined()
     } finally {
       peer.close()

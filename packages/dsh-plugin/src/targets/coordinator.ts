@@ -63,21 +63,43 @@ export class TargetCoordinator {
   }
 
   /**
+   * Validate handles and target liveness without consuming authority. Used at
+   * the inbox-claim boundary so model-visible tools exist before assembly.
+   */
+  previewBatch(handles: readonly string[], context: ConsumeContext): GrantRecord[] {
+    return this.grants.previewBatch(handles, context, record => this.assertLive(record))
+  }
+
+  /**
    * Atomically consume many handles for one turn: every handle is validated
    * (session, turn, expiry, binding) and every bound target checked for
    * liveness BEFORE any record is committed, so a single dead or invalid
    * target rejects the whole batch without consuming the valid handles.
    */
   consumeBatch(handles: readonly string[], context: ConsumeContext): GrantRecord[] {
-    return this.grants.consumeBatch(handles, context, record => {
-      const provider = this.providers.get(record.target.descriptor.provider)
-      if (provider === undefined) {
-        throw bridgeError('internal', 'grant: unknown provider', false)
-      }
-      if (!provider.isConnected(record.target)) {
-        throw bridgeError('target_disconnected', 'grant: bound target is not connected', false)
-      }
-    })
+    return this.grants.consumeBatch(handles, context, record => this.assertLive(record))
+  }
+
+  /**
+   * Revoke rejected claimed handles without liveness/expiry checks, while the
+   * GrantStore still enforces exact session and compatible-turn ownership.
+   */
+  revokeHandles(
+    handles: readonly string[],
+    context: ConsumeContext,
+    preserved: ReadonlySet<GrantId> = new Set(),
+  ): GrantRecord[] {
+    return this.revokeRecords(this.grants.revokeHandles(handles, context, preserved))
+  }
+
+  private assertLive(record: GrantRecord): void {
+    const provider = this.providers.get(record.target.descriptor.provider)
+    if (provider === undefined) {
+      throw bridgeError('internal', 'grant: unknown provider', false)
+    }
+    if (!provider.isConnected(record.target)) {
+      throw bridgeError('target_disconnected', 'grant: bound target is not connected', false)
+    }
   }
 
   /** The grant id bound to one in-flight request (providers embed it). */
