@@ -5,10 +5,10 @@ on:
   pull_request:
 
 env:
-  # The DSH source is never vendored: CI checks out the exact revision the
-  # plugin was developed against and links it with the workspace linker.
-  DSH_SOURCE_REPO: https://github.com/dsh2026/test-ycp424c.git
-  DSH_SOURCE_REVISION: 30cc9edc36fdeb00f804b370481c12fb6764633d
+  # Runtime and client-engine test source must match the supported DSH release.
+  DSH_VERSION: 0.2.1-rc.2
+  DSH_SOURCE_REPO: https://github.com/deepseek-ai/deepseek-harness.git
+  DSH_SOURCE_REVISION: 687f282e8625c6b8d11ff58211a90524be2e4317
   # Keep Playwright browsers inside the workspace (gitignored).
   PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.pw-browsers
 
@@ -34,20 +34,19 @@ jobs:
           git clone --filter=blob:none --no-checkout "$DSH_SOURCE_REPO" "$GITHUB_WORKSPACE/.ci/dsh"
           git -C "$GITHUB_WORKSPACE/.ci/dsh" checkout "$DSH_SOURCE_REVISION"
 
-      - name: Link the DSH source
-        run: pnpm link:dsh -- "$GITHUB_WORKSPACE/.ci/dsh"
+      - name: Install the pinned DSH SDK
+        run: |
+          npm install --prefix "$GITHUB_WORKSPACE/.ci/sdk" --legacy-peer-deps --ignore-scripts "@deepseek-ai/dsh@$DSH_VERSION"
+          npm install --prefix "$GITHUB_WORKSPACE/.ci/extra-sdk" --legacy-peer-deps --ignore-scripts "@deepseek-ai/dsh-client-store@$DSH_VERSION" "@deepseek-ai/dsh-client-ui-slots@$DSH_VERSION" "@deepseek-ai/dsh-client-ui-primitives@$DSH_VERSION" zustand@5 immer@10
+
+      - name: Configure the DSH SDK
+        run: node scripts/setup-dsh.mjs "$GITHUB_WORKSPACE/.ci/sdk" "$GITHUB_WORKSPACE/.ci/dsh" "$GITHUB_WORKSPACE/.ci/extra-sdk"
 
       - name: Install dependencies (frozen)
         run: pnpm install --frozen-lockfile
 
-      - name: Typecheck
-        run: pnpm typecheck
-
-      - name: Unit tests
-        run: pnpm test
-
-      - name: Build
-        run: pnpm build
+      - name: Build, typecheck, and unit tests
+        run: pnpm check
 
       - name: Package dry-runs
         run: |
@@ -70,7 +69,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: chrome-mv3
-          path: extension/.output/chrome-mv3
+          path: extension/output/chrome-mv3
 
       - name: Upload Playwright report on failure
         if: failure()

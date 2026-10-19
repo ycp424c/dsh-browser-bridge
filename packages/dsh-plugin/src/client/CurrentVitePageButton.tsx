@@ -1,8 +1,6 @@
 import { useState } from 'react'
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
-import type { ConversationSnapshot } from '@deepseek-ai/dsh-client-runtime/client'
-import type { InputState } from '@deepseek-ai/dsh-client-ui-conversation/src/client/input/contract.ts'
-import type { ReferenceInsert } from '@deepseek-ai/dsh-client-ui-input-trigger/src/types.ts'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
+import type { InputState, ReferenceInsert } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { BrowserTargetDescriptor } from '@ycp424c/dsh-browser-bridge-protocol'
 import type { ViteTargetApi } from './vite-api.ts'
 import type { VerifiedViteTarget } from './vite-parent-channel.ts'
@@ -19,7 +17,7 @@ if (typeof document !== 'undefined' && document.head !== null) {
 
 /** Injected by the slot registration; stable per session scope. */
 export interface CurrentVitePageButtonInjected {
-  actx: ClientContext
+  actx: Pick<ClientContext, 'bail'>
   api: ViteTargetApi
   store: ReferenceStore<BrowserTargetDescriptor>
   /** The host-verified current-page identity of this embedded DSH Web. */
@@ -27,7 +25,7 @@ export interface CurrentVitePageButtonInjected {
 }
 
 export interface CurrentVitePageButtonProps extends CurrentVitePageButtonInjected {
-  session: ConversationSnapshot
+  session: { readonly sessionId: string }
   input: InputState
 }
 

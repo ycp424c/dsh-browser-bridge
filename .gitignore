@@ -2,6 +2,8 @@
 .pnpm-store/
 node_modules/
 lib/
+!extension/src/lib/
+!extension/src/lib/**
 dist/
 extension/output/
 test-results/

@@ -1,7 +1,7 @@
 {
   "name": "@ycp424c/dsh-browser-bridge",
   "description": "External DSH plugin (host + client) for the browser bridge",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
@@ -26,10 +26,10 @@
   "dsh": {
     "client": {
       "inject": [
-        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-api-session-controller",
+        "@deepseek-ai/dsh-client-ui-renderer",
         "@deepseek-ai/dsh-client-ui-input-trigger",
-        "@deepseek-ai/dsh-client-ui-conversation",
-        "@deepseek-ai/dsh-client-ui-slots"
+        "@deepseek-ai/dsh-client-ui-conversation"
       ],
       "platform": "web"
     },
@@ -48,40 +48,42 @@
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1-rc.1",
-    "@deepseek-ai/dsh-agent": "^0.0.1",
-    "@deepseek-ai/dsh-attachment": "^0.0.1",
-    "@deepseek-ai/dsh-session": "^0.0.1",
-    "@deepseek-ai/dsh-tools": "^0.0.1"
+    "@deepseek-ai/dsh-agent": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-attachment": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-llm": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-session": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-tools": "0.2.1-rc.2"
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "link:../../.dsh/source/current/vendor/cordis",
-    "@deepseek-ai/cordis-plugin-include": "link:../../.dsh/source/current/vendor/include",
-    "@deepseek-ai/cordis-plugin-loader": "link:../../.dsh/source/current/vendor/loader",
-    "@deepseek-ai/dsh-agent": "link:../../.dsh/source/current/packages/core/agent",
-    "@deepseek-ai/dsh-agent-loop": "link:../../.dsh/source/current/packages/core/agent-loop",
-    "@deepseek-ai/dsh-attachment": "link:../../.dsh/source/current/packages/attachment/attachment",
-    "@deepseek-ai/dsh-client-runtime": "link:../../.dsh/source/current/packages/client/runtime",
-    "@deepseek-ai/dsh-client-ui-conversation": "link:../../.dsh/source/current/packages/client/ui-conversation",
-    "@deepseek-ai/dsh-client-ui-input-trigger": "link:../../.dsh/source/current/packages/client/ui-input-trigger",
-    "@deepseek-ai/dsh-client-ui-slots": "link:../../.dsh/source/current/packages/client/ui-slots",
-    "@deepseek-ai/dsh-host-webserver": "link:../../.dsh/source/current/packages/host/webserver",
-    "@deepseek-ai/dsh-llm": "link:../../.dsh/source/current/packages/llm/llm",
-    "@deepseek-ai/dsh-scope": "link:../../.dsh/source/current/packages/core/scope",
-    "@deepseek-ai/dsh-session": "link:../../.dsh/source/current/packages/core/session",
-    "@deepseek-ai/dsh-system-prompt": "link:../../.dsh/source/current/packages/core/system-prompt",
-    "@deepseek-ai/dsh-tools": "link:../../.dsh/source/current/packages/core/tools",
+    "@deepseek-ai/cordis": "link:../../.dsh/sdk/@deepseek-ai/cordis",
+    "@deepseek-ai/cordis-plugin-include": "link:../../.dsh/sdk/@deepseek-ai/cordis-plugin-include",
+    "@deepseek-ai/cordis-plugin-loader": "link:../../.dsh/sdk/@deepseek-ai/cordis-plugin-loader",
+    "@deepseek-ai/dsh-agent": "link:../../.dsh/sdk/@deepseek-ai/dsh-agent",
+    "@deepseek-ai/dsh-agent-loop": "link:../../.dsh/sdk/@deepseek-ai/dsh-agent-loop",
+    "@deepseek-ai/dsh-api-session-controller": "link:../../.dsh/sdk/@deepseek-ai/dsh-api-session-controller",
+    "@deepseek-ai/dsh-attachment": "link:../../.dsh/sdk/@deepseek-ai/dsh-attachment",
+    "@deepseek-ai/dsh-client-ui-conversation": "link:../../.dsh/sdk/@deepseek-ai/dsh-client-ui-conversation",
+    "@deepseek-ai/dsh-client-ui-input-trigger": "link:../../.dsh/sdk/@deepseek-ai/dsh-client-ui-input-trigger",
+    "@deepseek-ai/dsh-client-ui-renderer": "link:../../.dsh/sdk/@deepseek-ai/dsh-client-ui-renderer",
+    "@deepseek-ai/dsh-host-webserver": "link:../../.dsh/sdk/@deepseek-ai/dsh-host-webserver",
+    "@deepseek-ai/dsh-llm": "link:../../.dsh/sdk/@deepseek-ai/dsh-llm",
+    "@deepseek-ai/dsh-scope": "link:../../.dsh/sdk/@deepseek-ai/dsh-scope",
+    "@deepseek-ai/dsh-session": "link:../../.dsh/sdk/@deepseek-ai/dsh-session",
+    "@deepseek-ai/dsh-session-projection": "link:../../.dsh/sdk/@deepseek-ai/dsh-session-projection",
+    "@deepseek-ai/dsh-system-prompt": "link:../../.dsh/sdk/@deepseek-ai/dsh-system-prompt",
+    "@deepseek-ai/dsh-tools": "link:../../.dsh/sdk/@deepseek-ai/dsh-tools",
     "@types/node": "^22.0.0",
     "@types/react": "~18.3.1",
     "@types/react-test-renderer": "^18.3.1",
     "@types/ws": "^8.18.1",
+    "@ycp424c/dsh-browser-bridge-protocol": "workspace:^",
     "jsdom": "^26.1.0",
     "react": "^18.2.0",
     "react-test-renderer": "^18.2.0",
     "tsdown": "^0.22.2",
     "typescript": "^6.0.3",
     "vite-tsconfig-paths": "^5.1.4",
-    "vitest": "^4.1.10",
-    "@ycp424c/dsh-browser-bridge-protocol": "workspace:^"
+    "vitest": "^4.1.10"
   },
   "license": "MIT",
   "repository": {

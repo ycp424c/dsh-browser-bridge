@@ -1,6 +1,23 @@
 # dsh-browser-bridge
 
-在 Chrome 侧边栏里直接嵌入**完整的 DSH Web**，让浏览器里的真实页面成为当前开发对话中的一等公民：DSH 既能像往常一样读写文件、执行命令，也能通过你显式授权的标签页，直接观察、操作和验证页面，而不必换到另一个“浏览器专用对话”里。
+## DSH 0.2.1-rc.2 开发与验证
+
+本次 0.1.1 适配要求 DSH `0.2.1-rc.2`；尚未发布 npm。运行包与开发工作区分开。
+开发验证直接使用同版已安装的官方 npm SDK，客户端引擎测试另需官方源码 tag
+`dsh-v0.2.1-rc.2`（commit `687f282e8625c6b8d11ff58211a90524be2e4317`）。
+setup 校验版本、生成忽略的本机路径映射，不修改上游源码。Node 与 pnpm 版本见 package.json。
+
+```bash
+# runtime-prefix 下须有 node_modules/@deepseek-ai/dsh@0.2.1-rc.2。
+# 另外需要同版 client-store、client-ui-slots、client-ui-primitives，
+# 以及 client-store 使用的 zustand@5 / immer@10；若另装到一个 prefix，作为第三个参数传入。
+node scripts/setup-dsh.mjs /path/to/runtime-prefix /path/to/deepseek-harness-at-tag /path/to/extra-sdk-prefix
+pnpm install --frozen-lockfile
+pnpm check
+```
+
+不需要第三个 SDK prefix 时可省略。SDK 使用外部已有安装，仓库不复制核心实现；
+三个输入目录可以放在任意持久位置，提交的默认配置不依赖临时目录或个人绝对路径。
 
 ## 效果展示
 
@@ -99,7 +116,7 @@ console 与 network 证据有界：从 debugger 附加时开始记录，随授�
 
 ## 通过 npm 安装
 
-插件已发布到 npm：`@ycp424c/dsh-browser-bridge`。适用于 DSH `0.0.1-rc.2+` 的 web profile：
+npm 上已发布的 `@ycp424c/dsh-browser-bridge@0.1.0` 属于旧版 DSH；以下命令仅供旧版使用。DSH `0.2.1-rc.2` 请使用本仓库 0.1.1 源码构建，尚未发布新版 npm：
 
 ```bash
 # 1. 安装依赖（等价于在 profile 目录执行 pnpm add）
@@ -112,7 +129,7 @@ dsh plugin add --profile web @ycp424c/dsh-browser-bridge
 dsh web
 ```
 
-插件的 peerDependencies（`@deepseek-ai/cordis`、`@deepseek-ai/schemastery` 及 `@deepseek-ai/dsh-*`）由 DSH 本体提供，无需单独安装。
+插件的 peerDependencies（`@deepseek-ai/cordis` 及 `@deepseek-ai/dsh-*`）由 DSH 本体提供，无需单独安装。
 
 浏览器扩展（`extension/`）不发布 npm；需要扩展能力的场景仍按下方源码方式构建并“加载已解压的扩展程序”。只用 Vite Provider 的场景不需要扩展。
 
@@ -121,8 +138,8 @@ dsh web
 环境要求：Node.js `^22.19.0 || >=24.0.0`（启用 Corepack）、pnpm 11.7.0、Chrome 118+，以及一份本地 DSH 源码检出。
 
 ```bash
-# 1. 将 DSH 插件链接到本地 DSH 源码检出
-pnpm link:dsh -- /absolute/path/to/dsh
+# 1. 使用同版已安装 SDK 与官方 tag 源码（详见文首）
+node scripts/setup-dsh.mjs /path/to/runtime-prefix /path/to/deepseek-harness-at-tag /path/to/extra-sdk-prefix
 
 # 2. 安装依赖并验证（类型检查 + 单元测试 + 构建）
 pnpm install --frozen-lockfile

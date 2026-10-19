@@ -1,8 +1,6 @@
 import { useState } from 'react'
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
-import type { ConversationSnapshot } from '@deepseek-ai/dsh-client-runtime/client'
-import type { InputState } from '@deepseek-ai/dsh-client-ui-conversation/src/client/input/contract.ts'
-import type { ReferenceInsert } from '@deepseek-ai/dsh-client-ui-input-trigger/src/types.ts'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
+import type { InputState, ReferenceInsert } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { TabDescriptor } from '@ycp424c/dsh-browser-bridge-protocol'
 import type { ExtensionChannel } from './extension-channel.ts'
 import { ReferenceStore } from './reference-store.ts'
@@ -18,13 +16,13 @@ if (typeof document !== 'undefined' && document.head !== null) {
 
 /** Injected by the slot registration; stable per session scope. */
 export interface CurrentTabButtonInjected {
-  actx: ClientContext
+  actx: Pick<ClientContext, 'bail'>
   channel: ExtensionChannel
   store: ReferenceStore<TabDescriptor>
 }
 
 export interface CurrentTabButtonProps extends CurrentTabButtonInjected {
-  session: ConversationSnapshot
+  session: { readonly sessionId: string }
   input: InputState
 }
 

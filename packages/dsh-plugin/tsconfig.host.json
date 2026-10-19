@@ -1,34 +1,34 @@
 {
-  "extends": ["../../tsconfig.base.json", "../../.dsh/tsconfig.paths.json"],
+  "extends": [
+    "../../tsconfig.base.json",
+    "../../.dsh/tsconfig.paths.json"
+  ],
   "compilerOptions": {
+    "skipLibCheck": true,
+    "rootDir": "../..",
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "jsx": "react-jsx",
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "verbatimModuleSyntax": false,
-    "allowImportingTsExtensions": true,
-    "noEmit": true,
-    "jsx": "react-jsx",
-    "lib": ["ES2024", "DOM", "DOM.Iterable"],
-    "types": ["node"],
-    // The linked DSH checkout vendors cordis/cosmokit/schemastery, whose own
-    // tsconfigs relax these flags (the same relaxation DSH applies per
-    // package). Our own code still compiles under `strict`.
+    "lib": [
+      "ES2024",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "types": [
+      "node"
+    ],
     "exactOptionalPropertyTypes": false,
     "noUncheckedIndexedAccess": false,
-    "noImplicitOverride": false,
-    "noImplicitAny": false,
-    "noImplicitThis": false
+    "noImplicitOverride": false
   },
-  "exclude": ["src/client/**"],
   "include": [
     "src/**/*.ts",
-    "src/**/*.tsx",
-    "tests/pre-step.spec.ts",
-    "tests/bridge-server.spec.ts",
-    "tests/pairing-store.spec.ts",
-    "tests/grant-store.spec.ts",
-    "tests/tools.spec.ts",
-    "tests/apply.spec.ts",
-    "tests/composition.e2e.spec.ts",
     "tsdown.config.ts"
+  ],
+  "exclude": [
+    "src/client/**"
   ]
 }

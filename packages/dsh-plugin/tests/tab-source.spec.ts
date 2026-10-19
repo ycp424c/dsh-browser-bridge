@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { InputTriggerCandidate, InputTriggerPick, TokenSpan } from '@deepseek-ai/dsh-client-ui-input-trigger/src/types.ts'
-import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { TabDescriptor } from '@ycp424c/dsh-browser-bridge-protocol'
 import { ReferenceStore } from '../src/client/reference-store.ts'
 import { createTabSource } from '../src/client/tab-source.ts'

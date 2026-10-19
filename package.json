@@ -7,14 +7,14 @@
     "node": "^22.19.0 || >=24.0.0"
   },
   "scripts": {
-    "link:dsh": "node scripts/link-dsh-source.mjs",
-    "setup:dsh": "node scripts/link-dsh-source.mjs && node scripts/sync-dsh-tsconfig.mjs",
+    "link:dsh": "node scripts/setup-dsh.mjs",
+    "setup:dsh": "node scripts/setup-dsh.mjs",
     "build": "pnpm -r build",
-    "typecheck": "node scripts/sync-dsh-tsconfig.mjs && pnpm -r typecheck",
+    "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
     "test:e2e": "playwright test",
     "zip": "pnpm --filter @ycp424c/dsh-browser-bridge-extension zip",
-    "check": "pnpm typecheck && pnpm test && pnpm build"
+    "check": "pnpm build && pnpm typecheck && pnpm test"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",

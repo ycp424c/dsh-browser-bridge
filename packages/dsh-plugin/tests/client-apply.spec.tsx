@@ -9,8 +9,9 @@
  */
 import { Context } from '@deepseek-ai/cordis'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createScope, scopeOf, SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
-import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import { createScope, scopeOf } from '@deepseek-ai/dsh-api-session-controller/client'
+import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { InputTriggerServiceContract } from '@deepseek-ai/dsh-client-ui-input-trigger/src/client/contract.ts'
 import { apply, inject } from '../src/client/index.tsx'
 import { CurrentTabButton, type CurrentTabButtonInjected } from '../src/client/CurrentTabButton.tsx'

@@ -6,10 +6,12 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
-import AgentRegistry, { agentEvents, Inbox, type Agent, type PreStepDecision } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { agentEvents, type Agent, type PreStepDecision } from '@deepseek-ai/dsh-agent'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
+import { StubInbox } from './stub-inbox.ts'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import LlmRuntime, {
-  CallId,
+  ToolCallId,
   createUserMessage,
   LlmAdapter,
   type GenerateOptions,
@@ -35,7 +37,7 @@ const EXT_A = 'chrome-extension://abcdefghijklmnopabcdefghijklmnop'
 const FIXTURE_URL = 'http://127.0.0.1:4173/'
 const TAB: TabDescriptor = { tabId: 7, windowId: 2, title: 'Fixture', url: FIXTURE_URL }
 
-const pluginDir = join(import.meta.dirname, '..')
+const pluginDir = process.env.DSH_BROWSER_BRIDGE_PACKAGE ?? join(import.meta.dirname, '..')
 
 /** One-response adapter that captures the exact first model request. */
 class CaptureAdapter extends LlmAdapter {
@@ -219,14 +221,10 @@ class VitePeer {
 
 async function stubAgent(ctx: Context, id: string): Promise<Agent> {
   const sessionId = SessionId(id)
-  const session = Session.create(sessionId, [], { version: SESSION_FORMAT_VERSION, id: sessionId, createdAt: 0, cwd: '/tmp' })
+  const session = Session.create(sessionId, [], { version: SESSION_FORMAT_VERSION, id: sessionId, createdAt: 0, cwd: '/tmp', isSeeded: false })
   let agent!: Agent
-  const inbox = new Inbox(session, {
-    inserted: () => {},
-    discarded: () => {},
-    claimed: (message, turn) => {
-      agentEvents(ctx, agent).emit('agent/inbox/claimed', { message, turn })
-    },
+  const inbox = new StubInbox((message, turn) => {
+    agentEvents(ctx, agent).emit('agent/inbox/claimed', { message, turn })
   })
   agent = {
     id: sessionId,
@@ -285,7 +283,7 @@ function fireTurnEnd(ctx: Context, agent: Agent, turn: number): void {
 
 function executionContext(signal: AbortSignal, agent: Agent): ToolRunContext {
   return {
-    callId: CallId('composition-call'),
+    callId: ToolCallId('composition-call'),
     name: 'browser_observe',
     arguments: {},
     signal,
@@ -371,6 +369,7 @@ async function makeAgentLoopComposition(): Promise<AgentLoopComposition> {
   await ctx.plugin(WebServer, { host: '127.0.0.1', port: 0 })
   await ctx.plugin(LlmRuntime)
   await ctx.plugin(SessionStore)
+  await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRegistry)
   await ctx.plugin(AgentRegistry)
@@ -379,7 +378,7 @@ async function makeAgentLoopComposition(): Promise<AgentLoopComposition> {
   await mountBridge(ctx, profileDir)
   const adapter = new CaptureAdapter()
   ctx.llm.registerAdapter(['mock'], adapter)
-  const agent = ctx.agentLoop.create(SessionId('session-agent-loop'), { provider: 'mock', model: 'mock' })
+  const agent = await ctx.agentLoop.create(SessionId('session-agent-loop'), { provider: 'mock', model: 'mock' })
   const port = ctx.webServer.port
   return {
     ctx,
@@ -437,7 +436,7 @@ describe('DSH composition', () => {
 
       expect(loop.adapter.requests).toHaveLength(1)
       expect(loop.adapter.requests[0]?.tools?.map(tool => tool.name)).toContain('browser_observe')
-      const header = loop.agent.session.events.find(event => event.type === 'request/header')
+      const header = loop.agent.session.snapshotEvents().find(event => event.type === 'request/header')
       expect(header?.type === 'request/header' && header.data.header.tools?.map(tool => tool.name))
         .toContain('browser_observe')
       expect(loop.agent.ctx.tools.get('browser_observe', loop.agent)).toBeUndefined()

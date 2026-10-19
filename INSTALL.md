@@ -1,29 +1,31 @@
 # Installing the DSH Browser Bridge
 
 This page is an executable smoke checklist for setting up a local development
-installation. It distinguishes the **DSH source checkout** (the local DSH
-codebase this plugin links against) from the **installed plugin directory**
-(the built `packages/dsh-plugin` folder that `dsh plugin` loads).
+installation. Development uses the installed DSH SDK for runtime packages and
+the matching official source tag for client-engine tests. The installed plugin
+is the built `packages/dsh-plugin` folder that `dsh plugin` loads.
 
 ## Prerequisites
 
 - Node.js `^22.19.0 || >=24.0.0` and Corepack enabled (`corepack enable`).
 - pnpm 11.7.0 (pinned by `packageManager` in the root `package.json`).
-- A local checkout of DSH (any checkout whose layout contains `AGENTS.md`,
-  `packages/client/runtime`, and `vendor/cordis`).
+- An installed DSH `0.2.1-rc.2` SDK and an official source checkout at
+  `dsh-v0.2.1-rc.2` (`687f282e8625c6b8d11ff58211a90524be2e4317`).
+- The same-version `client-store`, `client-ui-slots`, and `client-ui-primitives`
+  SDK packages, plus `zustand@5` and `immer@10` (see README).
 - Chrome 118+ for the extension.
 
-## 1. Development link
+## 1. Configure the development SDK
 
-The DSH plugin package imports DSH runtime packages through a symlink created
-by the workspace linker. The linker validates the checkout and refuses to
-overwrite a different existing link:
+The setup script verifies the SDK version and generates ignored local path
+mappings and package links without changing the upstream source:
 
 ```bash
-pnpm link:dsh -- /absolute/path/to/dsh
+node scripts/setup-dsh.mjs /path/to/runtime-prefix /path/to/deepseek-harness-at-tag /path/to/extra-sdk-prefix
 ```
 
-Expected: prints `.../.dsh/source/current -> /absolute/path/to/dsh`.
+Omit the third argument when the runtime prefix already contains all required SDK packages.
+Expected: prints `Configured installed DSH 0.2.1-rc.2 SDK and matching client test source`.
 
 ## 2. Install and verify the workspace
 
@@ -32,8 +34,8 @@ pnpm install --frozen-lockfile
 pnpm check
 ```
 
-`pnpm check` runs typecheck, the unit test suites (protocol, host plugin,
-extension), and all builds. Expected artifacts:
+`pnpm check` builds workspace dependencies first, then runs typecheck and the
+unit test suites (protocol, host plugin, page runtime, extension, and Vite plugin). Expected artifacts:
 
 - `packages/protocol/lib/index.js`
 - `packages/dsh-plugin/lib/index.js`
@@ -100,7 +102,7 @@ settings. Only HTTP(S) tabs can be attached; Chrome-protected pages
   `dsh plugin --profile web remove @ycp424c/dsh-browser-bridge`.
 - Remove the extension from `chrome://extensions`. Chrome detaches any
   debugger sessions owned by the extension and closes its side panel.
-- To drop the local link: delete the `.dsh/source` symlink.
+- To drop the local SDK configuration: delete the generated `.dsh/` directory.
 
 ## 8. Vite provider（可选）
 

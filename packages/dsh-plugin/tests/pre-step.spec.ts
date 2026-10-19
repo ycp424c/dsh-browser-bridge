@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import { agentEvents, Inbox, type Agent, type PreStepDecision } from '@deepseek-ai/dsh-agent'
+import { agentEvents, type Agent, type PreStepDecision } from '@deepseek-ai/dsh-agent'
+import { StubInbox } from './stub-inbox.ts'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { Session, type UserMessage } from '@deepseek-ai/dsh-session'
 import { SessionId, SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session/types'
@@ -45,14 +46,10 @@ class FakeSocket implements BridgeSocket {
 
 async function stubAgent(ctx: Context, id: string): Promise<Agent> {
   const sessionId = SessionId(id)
-  const session = Session.create(sessionId, [], { version: SESSION_FORMAT_VERSION, id: sessionId, createdAt: 0, cwd: '/tmp' })
+  const session = Session.create(sessionId, [], { version: SESSION_FORMAT_VERSION, id: sessionId, createdAt: 0, cwd: '/tmp', isSeeded: false })
   let agent!: Agent
-  const inbox = new Inbox(session, {
-    inserted: () => {},
-    discarded: () => {},
-    claimed: (message, turn) => {
-      agentEvents(ctx, agent).emit('agent/inbox/claimed', { message, turn })
-    },
+  const inbox = new StubInbox((message, turn) => {
+    agentEvents(ctx, agent).emit('agent/inbox/claimed', { message, turn })
   })
   agent = {
     id: sessionId,

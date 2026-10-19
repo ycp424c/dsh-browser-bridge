@@ -4,6 +4,7 @@
  * marker consumption, and turn-scoped browser tools.
  */
 import type { Context } from '@deepseek-ai/cordis'
+import type {} from '@deepseek-ai/dsh-host-webserver'
 import z from '@deepseek-ai/schemastery'
 import { WebSocketServer } from 'ws'
 import { PairingStore, EXTENSION_ORIGIN_PATTERN } from './bridge/pairing-store.ts'
@@ -190,4 +191,5 @@ export function apply(ctx: Context, config: ConfigShape): void {
   }, 'dsh-browser-bridge: host plugin')
 }
 
-export default apply
+// Loader unwraps the default export; keep Config and service dependencies with apply.
+export default { name, inject, Config, apply }

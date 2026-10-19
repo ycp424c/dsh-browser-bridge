@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { act, create } from 'react-test-renderer'
 import { describe, expect, it, vi } from 'vitest'
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
-import type { ConversationSnapshot } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
+import type { ConversationSnapshot } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { InputState } from '@deepseek-ai/dsh-client-ui-conversation/src/client/input/contract.ts'
 import type { BrowserTargetDescriptor } from '@ycp424c/dsh-browser-bridge-protocol'
 import { CurrentVitePageButton } from '../src/client/CurrentVitePageButton.tsx'
